@@ -1,0 +1,270 @@
+{
+  "profile_id": "baseline",
+  "profile_label": "Eclectic Urban Dreamer",
+  "profile_dna": [
+    "Excels at vibrant/saturated colors",
+    "Strong in atmospheric cityscapes and landscapes",
+    "Prefers moody and dramatic lighting",
+    "Gravitates toward abstract and surreal styles",
+    "Skilled in portraiture with environmental context",
+    "Shows resistance to minimalism and commercial aesthetics",
+    "Enjoys blending realism with imaginative elements",
+    "Favors dynamic compositions with a sense of motion",
+    "Strong adaptability to various artistic mediums"
+  ],
+  "ratings": {
+    "Night Urban Traffic": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The image captures the essence of night photography with a vibrant city intersection, showcasing dynamic traffic flow. The mood is effectively moody and atmospheric, enhanced by reflections from wet surfaces. The subject matter aligns well with the prompt, presenting a well-composed urban scene characterized by rich colors and a slightly gritty texture that reflects the vibrancy of city life."
+    },
+    "Foggy City Aerial": {
+      "affinity": "native_fit",
+      "score": 10,
+      "confidence": 0.95,
+      "commentary": "This image excellently achieves the aerial perspective described in the prompt, with a city skyline emerging dramatically from fog. The mood is ethereal and serene, perfectly fitting the atmospheric qualities associated with fog. The composition is accurate, and the warm colors of the sunrise contrast beautifully with the cool fog, creating a stunning visual balance characteristic of this profile's work."
+    },
+    "Neon Rain Street": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The image embodies the prompt's request for night street photography with neon reflections in a rain-soaked alley. The mood is vibrant yet intimate, capturing the essence of a bustling urban environment. Compositionally, it is spot on, with glowing neon lights enhancing the wet surfaces, and the texture is rich and painterly, evoking a sense of nostalgia and warmth despite the rain."
+    },
+    "Alpine Stream": {
+      "affinity": "native_fit",
+      "score": 10,
+      "confidence": 0.95,
+      "commentary": "This landscape photograph beautifully fulfills the prompt, showcasing a serene mountain stream flowing through a lush forest. The mood is tranquil and inviting, perfectly matching the natural setting. The composition is well-balanced, with vibrant greens and the crystal-clear water reflecting the surrounding foliage, emphasizing a painterly quality that aligns with the profile's emphasis on nature."
+    },
+    "Coastal Wave": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.85,
+      "commentary": "The image captures the essence of a seascape, depicting waves crashing on a rocky shore. However, the mood feels slightly less dramatic than expected for dusk, lacking the darker tones typically associated with the time. The subject matter is accurate, but the color palette, while beautiful, could benefit from deeper contrasts to enhance the sense of dusk, making it feel less vibrant and more moody."
+    },
+    "Winter Forest Mist": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "This image successfully captures the ethereal quality of a snow-covered forest enveloped in mist. The mood is cold and serene, evocative of a quiet winter landscape. The composition is strong, with a harmonious blend of white and cool blue tones, enhancing the tranquil atmosphere, while the texture remains smooth, typical of high-quality landscape photography."
+    },
+    "Candid Environmental Portrait": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The image effectively achieves the prompt's request for a candid environmental portrait, capturing a natural moment with a focus on the subject's expressive features. The mood is warm and inviting, reflecting a genuine moment in a natural setting. The composition is intimate, with rich details and vibrant colors, showcasing the profile's ability to blend emotion with environmental context."
+    },
+    "Vintage Drive-In": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "This automotive photograph perfectly captures the nostalgic essence of a classic car at a retro drive-in theater. The mood is cozy and reminiscent of a bygone era, with warm color tones enhancing the scene's inviting qualities. The composition effectively highlights the car and the surrounding details, with a slight sheen from rain adding depth to the texture, characteristic of this profile's vintage aesthetic."
+    },
+    "Window Light Interior": {
+      "affinity": "resistant",
+      "score": 4,
+      "confidence": 0.7,
+      "commentary": "The image struggles to fulfill the prompt's request for a minimalist room with natural window light, leaning towards a more surreal interpretation. The mood feels overly stylized and lacks the simplicity expected in minimalist design. The composition includes excessive elements that detract from the intended aesthetic, and the color palette, while interesting, deviates from a true minimalist approach."
+    },
+    "Motion Blur Abstract": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.8,
+      "commentary": "This image partially achieves the abstract photography prompt through dynamic motion blur, capturing the essence of movement in a grocery aisle. However, the mood is more chaotic than the prompt suggests, lacking a coherent focus. The composition somewhat aligns with the subject matter, yet it deviates from the more refined abstraction anticipated, leaning towards a busy and cluttered feel."
+    },
+    "Cyberpunk Digital": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The image masterfully achieves the prompt's cyberpunk aesthetic, featuring a figure against a neon cityscape. The mood is moody and atmospheric, resonating with the genre's characteristics. The composition is striking, with high contrast and vibrant colors that evoke a sense of depth, while the texture reflects a gritty, urban quality typical of this profile's interpretation of cyberpunk themes."
+    },
+    "Abstract Expressionism": {
+      "affinity": "native_fit",
+      "score": 10,
+      "confidence": 0.95,
+      "commentary": "This image perfectly embodies the bold gestural brushstrokes and contrasting colors characteristic of abstract expressionism. The mood is vibrant and energetic, with a dynamic interplay of colors creating visual tension. The composition is well-balanced, showcasing a diverse palette with a rich texture that conveys the emotional intensity of the style, showcasing the profile's strength in capturing abstract forms."
+    },
+    "Minimalist Gradient": {
+      "affinity": "native_fit",
+      "score": 10,
+      "confidence": 0.95,
+      "commentary": "The image excellently fulfills the prompt for a minimalist painting, presenting a simple yet effective color gradient that suggests landscape. The mood is calm and serene, with a harmonious blend of soft colors. The composition is beautifully restrained, avoiding unnecessary clutter, and the smooth texture enhances the overall tranquil atmosphere, highlighting the profile's ability to convey simplicity and elegance."
+    },
+    "3D Render Concept": {
+      "affinity": "native_fit",
+      "score": 10,
+      "confidence": 0.95,
+      "commentary": "This image successfully achieves the futuristic aesthetic of a 3D render, showcasing a detailed digital art representation of a vehicle. The mood is sleek and innovative, reflecting the cutting-edge qualities associated with futuristic designs. The composition is precise, with a clean color palette dominated by whites and yellows, and a polished texture that emphasizes the technological aspects, characteristic of the profile's vision in digital art."
+    },
+    "Pop Surrealism Portrait": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The image effectively captures the pop surrealism aesthetic, blending reality with unexpected elements in the portrait. The mood is whimsical yet thought-provoking, with a vibrant color palette that draws the viewer in. The composition is detailed and intricate, showcasing a mix of realism and stylization, while the texture remains rich and painterly, highlighting the unique narrative quality typical of this profile's work."
+    },
+    "Whimsical Illustration": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.95,
+      "commentary": "The image successfully captures the essence of a whimsical illustration with its playful scene and fantastical characters. The colors are vibrant and saturated, enhancing the joyful mood, while the textures appear painterly and rich. This profile's signature leans towards a bright and colorful palette, emphasizing warmth and cheerfulness."
+    },
+    "Documentary Portrait Test": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.85,
+      "commentary": "The portrait conveys a sense of authenticity typical of documentary photography, but the close-up lacks some rawness that characterizes this style. The lighting is soft, creating a more polished atmosphere rather than the gritty feel expected. The color tones are cool and subdued, imparting a contemplative mood that aligns somewhat with the prompt."
+    },
+    "Fine Art Landscape Test": {
+      "affinity": "native_fit",
+      "score": 10,
+      "confidence": 0.95,
+      "commentary": "This image exemplifies fine art landscape photography with its breathtaking composition of a forest. The moody atmosphere is enhanced by the mist and subdued lighting, while the color palette is rich in greens and earth tones. The texture feels smooth, reminiscent of high-quality photographic prints, perfectly aligning with the prompt."
+    },
+    "Commercial Product Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The image effectively showcases the whiskey in a commercial style, with sharp focus and vibrant colors that highlight the drink's rich amber hue. The lighting creates inviting reflections and textures, enhancing the product's appeal. This profile's aesthetic is characterized by a polished, luxurious feel, very suitable for advertising."
+    },
+    "Street Test": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.8,
+      "commentary": "While the image captures a candid moment, it feels somewhat staged, lacking the raw spontaneity typical of street photography. The lighting and mood are somewhat dramatic, which shifts the atmosphere from candid to cinematic. The color palette is warm and saturated, adding emotional depth but straying from the expected authenticity of street scenes."
+    },
+    "Architecture Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The architectural photography exemplifies modern design against a stormy sky, effectively conveying drama and elegance. The composition is balanced, with sharp lines and reflections that enhance the structure's appeal. The color tones are cool and subdued, complementing the contemporary aesthetic."
+    },
+    "Food Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.95,
+      "commentary": "This food photography perfectly captures the essence of a bowl of ramen, showcasing vibrant colors and textures that evoke appetite. The arrangement is visually appealing with a warm color palette, and the rustic wooden background adds authenticity. The image feels rich and inviting, aligning well with culinary aesthetics."
+    },
+    "Sports Test": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.85,
+      "commentary": "The image depicts an engaging moment in sports, but the focus on one player lends a staged feel rather than a dynamic competition. The lighting and color tones are dramatic, which enhances the emotional impact but detracts from the rawness of sports photography. The overall aesthetic is polished, leaning towards fashion rather than pure sports action."
+    },
+    "Fashion Test": {
+      "affinity": "native_fit",
+      "score": 10,
+      "confidence": 0.95,
+      "commentary": "The fashion photography is striking, capturing the model beautifully against a desert backdrop. The colors are warm and the lighting is soft, creating an ethereal quality. This profile emphasizes an elegant and dreamy aesthetic, with flowing textures that enhance the fashion elements."
+    },
+    "Wildlife Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The wildlife photography of the lioness is compelling, with sharp details that draw the viewer's gaze. The warm tones of the setting sun accentuate the subject's fur, creating a rich and inviting atmosphere. The composition effectively captures the majesty of the animal, aligning perfectly with the prompt's expectations."
+    },
+    "Children's Book Illustration Test": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.8,
+      "commentary": "The image captures a whimsical scene, but the execution feels slightly off from traditional children's book illustrations. While the colors are bright and engaging, the composition lacks some playful spontaneity. The textures are more defined and less fluid, which detracts from a watercolor feel."
+    },
+    "Abstract Test": {
+      "affinity": "native_fit",
+      "score": 8,
+      "confidence": 0.85,
+      "commentary": "The abstract expressionist oil painting captures bold shapes and colors effectively, aligning well with the prompt. The texture is rich and painterly, showcasing thick brushstrokes that evoke the emotional depth expected in this style. The color palette is vibrant, with a good balance between warm and cool tones."
+    },
+    "Digital Concept Art Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The digital concept art effectively portrays a futuristic airborne city, showcasing intricate details and a vibrant night setting. The colors are rich and luminous, enhancing the imaginative quality. This profile's signature style is characterized by a blend of realism and fantasy, creating a visually captivating scene."
+    },
+    "Charcoal Sketch Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.95,
+      "commentary": "The image of the charcoal sketch captures the essence of melancholy with exquisite detail and emotional depth. The textures of the charcoal are rich and expressive, and the black-and-white palette enhances the mood effectively. This profile showcases a refined, artistic approach with a focus on emotional resonance."
+    },
+    "Vector/Logo Test": {
+      "affinity": "resistant",
+      "score": 4,
+      "confidence": 0.75,
+      "commentary": "The image does not align well with the prompt for a flat vector graphic; instead, it appears three-dimensional and overly detailed. This results in a style drift away from the requested simplicity of a vector icon. The colors are vibrant but not suitable for a logo design, lacking the clarity and minimalism expected."
+    },
+    "Graphic Novel": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.8,
+      "commentary": "The image captures a steampunk aesthetic but leans more towards a stylized anime than a true noir atmosphere. The medium is somewhat accurate, showcasing illustrative qualities, but lacks the typical dark and moody tones associated with noir. The character design is striking, yet the overall composition feels too vibrant and polished to fully embody the gritty essence of the prompt."
+    },
+    "Watercolor Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.95,
+      "commentary": "This image excels in conveying the requested watercolor medium with soft washes and a naturalistic palette. The serene mood is appropriately captured, reflecting a peaceful rose garden. The colors are vibrant yet harmonious, showcasing a lush green backdrop that complements the warm hues of the roses, aligning perfectly with the prompt's request."
+    },
+    "Pop Art Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.9,
+      "commentary": "The image effectively embodies the pop art aesthetic with its bold colors and layered collage technique. The halftone dots and cut paper elements are executed well, creating a dynamic visual impact. The vibrant yellow background, combined with the contrasting blue and black, enhances the energetic feel typical of pop art, fulfilling the prompt's requirements."
+    },
+    "Impressionist Oil Painting Test": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.85,
+      "commentary": "While the image captures an idyllic countryside landscape, it leans more towards realism than the loose brushwork characteristic of impressionist oil painting. The colors are bright and the composition is clear, but it lacks the textured, emotive qualities and soft blending that define true impressionism. The scene is pleasant but doesn't fully achieve the loose spontaneity expected."
+    },
+    "Retro Poster Design": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.78,
+      "commentary": "The image largely hits the minimalist, bold-shape language of a vintage travel poster (layered dunes, a single sun disk, simplified geometry), and the limited palette is consistent with retro poster constraints. However, the heavy grain/noise texture and moody vignette lighting push it toward a cinematic, painterly matte look rather than clean screen-printed poster ink, which compromises the \u201cdesign\u201d feel. Composition is strong and poster-like, but it lacks typographic cues and the edges/gradients feel more photographic than flat graphic. The profile\u2019s signature here is a dark, desaturated, high-contrast atmosphere with pronounced paper/grit texture, smooth abstract forms, and a single saturated warm accent (the red/orange sun) against cool charcoal and off-white tones."
+    }
+  },
+  "affinity_summary": {
+    "native_fit": [
+      "Night Urban Traffic",
+      "Foggy City Aerial",
+      "Neon Rain Street",
+      "Alpine Stream",
+      "Winter Forest Mist",
+      "Candid Environmental Portrait",
+      "Vintage Drive-In",
+      "Cyberpunk Digital",
+      "Abstract Expressionism",
+      "Minimalist Gradient",
+      "3D Render Concept",
+      "Pop Surrealism Portrait",
+      "Whimsical Illustration",
+      "Fine Art Landscape Test",
+      "Commercial Product Test",
+      "Architecture Test",
+      "Food Test",
+      "Fashion Test",
+      "Wildlife Test",
+      "Abstract Test",
+      "Digital Concept Art Test",
+      "Charcoal Sketch Test",
+      "Watercolor Test",
+      "Pop Art Test"
+    ],
+    "workable": [
+      "Coastal Wave",
+      "Motion Blur Abstract",
+      "Documentary Portrait Test",
+      "Street Test",
+      "Sports Test",
+      "Children's Book Illustration Test",
+      "Graphic Novel",
+      "Impressionist Oil Painting Test"
+    ],
+    "resistant": [
+      "Window Light Interior",
+      "Vector/Logo Test"
+    ]
+  },
+  "analysis_version": "2.3-signature"
+}
