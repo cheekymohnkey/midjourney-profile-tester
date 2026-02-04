@@ -40,9 +40,9 @@
     },
     "Coastal Wave": {
       "affinity": "workable",
-      "score": 7,
-      "confidence": 0.73,
-      "commentary": "Waves crashing on a dark rocky shore at dusk is on-target, and the low angle adds drama consistent with seascape photography. The wave forms into an unusually sculptural curl with a glowing core, which feels more like VFX/fine-art composite than a captured moment. Mood is stormy and cinematic rather than naturalistic dusk. The profile\u2019s signature appears in the teal-and-amber grade, sparkling specular highlights, and heightened texture that pushes realism into hyperreal spectacle."
+      "score": 6,
+      "confidence": 0.74,
+      "commentary": "The scene reads as a seascape at dusk with dark rocks and crashing surf, so the subject and overall mood are broadly aligned. However, the wave forms a highly stylized, almost glassy barrel with an implausibly perfect golden light vortex, pushing it away from believable photography and into hyperreal/CGI territory. The tonality is aggressively cinematic: deep teal-blue water against warm orange highlights, heavy micro-contrast, and HDR-like clarity that flattens natural atmospheric subtlety. This profile\u2019s signature here feels like dramatic, high-saturation teal\u2013orange grading, crisp texture emphasis, and surreal \u201chero wave\u201d shaping that prioritizes spectacle over documentary realism."
     },
     "Winter Forest Mist": {
       "affinity": "resistant",
