@@ -30,3 +30,8 @@ Thumbs.db
 
 # Streamlit
 .streamlit/
+
+# Profile Data
+profile_analyses/
+profile_results/
+test_prompts.json
