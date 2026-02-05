@@ -1396,6 +1396,15 @@ elif st.session_state.page == 'rate':
                         help="How clear is the style match? Use Low if image is ambiguous"
                     )
                     
+                    # Color palette field
+                    color_palette = st.text_input(
+                        "Color Palette",
+                        value=existing_rating.get('color-palette', ''),
+                        placeholder="e.g., warm earth tones, vibrant neons, muted pastels...",
+                        key=f"color_palette_{test_name}",
+                        help="Describe the dominant color scheme"
+                    )
+                    
                     # Commentary with AI generation option
                     col_comment, col_ai = st.columns([4, 1])
                     
@@ -1449,6 +1458,7 @@ elif st.session_state.page == 'rate':
                             "score": score,
                             "affinity": affinity,
                             "confidence": confidence,
+                            "color_palette": color_palette.strip(),
                             "commentary": commentary.strip()
                         }
                         
