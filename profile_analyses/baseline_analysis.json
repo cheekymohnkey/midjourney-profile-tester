@@ -1,0 +1,31 @@
+{
+  "profile_id": "baseline",
+  "profile_label": "Vintage Graphic Enthusiast",
+  "profile_dna": [
+    "Strong with retro design elements",
+    "Excels at bold typography",
+    "Prefers muted color palettes",
+    "Gravitates toward nostalgic themes",
+    "Well-versed in vintage aesthetics",
+    "Tends to use geometric shapes",
+    "Can struggle with modern minimalist styles",
+    "Enjoys combining illustration with text",
+    "Adapts well to various vintage styles"
+  ],
+  "ratings": {
+    "Retro Poster Design": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.86,
+      "commentary": "The image mostly hits the vintage travel-poster vibe through simplified silhouettes, a limited palette, and strong graphic contrast, but it drifts toward a semi-illustrative/digital-paint look rather than true minimalist poster flatness. The composition (trees, lake reflection, oversized sun, distant mountains) reads as scenic and poster-friendly, yet the textures in the rocks/water and the nuanced shading add realism that weakens the bold-shape minimalism. Mood is clean and idyllic rather than nostalgic/aged\u2014there\u2019s no paper grain, halftone, or print wear to sell \u201cvintage.\u201d The profile\u2019s signature here feels like high-contrast color blocking (teal/orange/red), crisp edges with selective painterly detail, and a polished cinematic landscape sensibility that slightly over-renders for a strict retro poster brief."
+    }
+  },
+  "affinity_summary": {
+    "native_fit": [],
+    "workable": [
+      "Retro Poster Design"
+    ],
+    "resistant": []
+  },
+  "analysis_version": "2.3-signature"
+}

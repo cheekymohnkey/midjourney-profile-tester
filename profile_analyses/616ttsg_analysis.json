@@ -1,0 +1,264 @@
+{
+  "profile_id": "616ttsg",
+  "profile_label": "Urban Aesthetic Explorer",
+  "profile_dna": [
+    "Strong affinity for urban and atmospheric scenes",
+    "Prefers vibrant neon and moody lighting",
+    "Excels in fine art landscapes and environmental portraits",
+    "Gravitates toward cinematic and dramatic compositions",
+    "Weakness in minimalistic and abstract styles",
+    "High comfort with fashion and wildlife themes",
+    "Resistant to traditional illustrative styles",
+    "Loves dynamic elements like motion blur and fog",
+    "Effective with both digital and traditional mediums"
+  ],
+  "ratings": {
+    "Night Urban Traffic": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.78,
+      "commentary": "The subject reads clearly as a night city intersection with traffic, and the long-exposure light trails sell the \u201cnight photography\u201d intent. However, the rendering leans heavily into hyperreal HDR/CG polish\u2014neon saturation, extreme micro-contrast, and glossy reflections\u2014making it feel more like cinematic concept art than a straightforward photograph. Mood is energetic and wet-street nocturne, but the overall look is too processed to feel truly photographic. The profile signature here is cool-blue dominance with candy neon accents, high clarity, and a rain-slick reflective sheen."
+    },
+    "Foggy City Aerial": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.84,
+      "commentary": "This strongly matches aerial city skyline emerging from fog: layered towers recede into mist with convincing atmospheric perspective. The mood is brooding and quiet, with restrained contrast and a believable fog volume that reads as photographed rather than illustrated. Minor stylization shows in the dramatic cloud ceiling and slightly too-perfect tonal grading, but it stays within fine-art aerial photo plausibility. The profile\u2019s hallmark is cool steel-gray palette, soft diffusion, and cinematic low-key grading."
+    },
+    "Neon Rain Alley": {
+      "affinity": "native_fit",
+      "score": 8,
+      "confidence": 0.8,
+      "commentary": "A rain-soaked alley with neon reflections is delivered cleanly: wet pavement, puddle speculars, and colored signage create the intended nocturnal glow. It does drift toward set-dressed, game-environment slickness\u2014surfaces and lighting feel curated and slightly too pristine for candid street photography. Still, the mood (moody, humid, nocturne) and composition are on-brief. The profile signature is saturated magenta/blue neon against deep shadows, with glossy wet textures and a cinematic vignette."
+    },
+    "Alpine Stream": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.74,
+      "commentary": "The scene reads as a mountain/forest stream with flowing water and mossy banks, and the composition is classically landscape-photographic. The issue is the heavy \u201cpainterly HDR\u201d treatment: the water blur and glow feel stylized, and the forest has a smoothed, dreamlike texture rather than crisp natural detail. Mood is tranquil and slightly mystical, which is compatible but more fine-art than neutral landscape photography. The profile\u2019s signature shows as cool shadows, soft haze, and heightened micro-contrast on rocks and foliage."
+    },
+    "Coastal Wave": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.83,
+      "commentary": "Waves crashing on a dark rocky shore at dusk is executed convincingly, with long-exposure surf, brooding clouds, and a dim horizon line. The atmosphere is appropriately stormy and cold, and the rocks/water relationship supports the prompt\u2019s drama. It\u2019s slightly more \u201cepic matte\u201d than documentary seascape due to the dramatic sky shaping and grading, but it remains within fine-art seascape photography conventions. The profile aesthetic is desaturated blue-gray tonality, high drama skies, and silky water motion."
+    },
+    "Winter Forest Mist": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.82,
+      "commentary": "Snow-covered forest with fog is met directly: snowfields, bare trees, and dense mist produce strong depth and a cold, hushed mood. The fog is volumetric and believable, and the subdued contrast matches winter conditions well. Slight cinematic grading and cleanliness make it feel curated, but not enough to break the \u201clandscape photography\u201d read. The profile\u2019s signature is cool monochrome leaning blue, soft diffusion, and gentle highlight roll-off."
+    },
+    "Documentary Environmental Portrait": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.72,
+      "commentary": "It is a person in a natural setting, but it doesn\u2019t fully land as documentary: the pose, styling, and misty set-like background feel art-directed rather than observed. The mood is melancholic and quiet, which works, yet the image is too polished and graded to read as raw documentary portraiture. Subject placement and environment are coherent, but the \u201cstory\u201d feels constructed. The profile signature appears as muted cool tones, shallow haze, and a cinematic, desaturated finish with selective color (the small red flowers)."
+    },
+    "Vintage Drive-In": {
+      "affinity": "native_fit",
+      "score": 8,
+      "confidence": 0.79,
+      "commentary": "The classic car at a retro drive-in is clear and well composed, with period-appropriate signage and a dusk/magenta sky that supports nostalgia. The automotive-photography cues (low angle, clean reflections, hero framing) are strong, though the color grading is slightly too stylized and \u201cteal/pink\u201d to feel purely commercial-real. Still, it reads as a deliberate car shoot rather than illustration. The profile\u2019s signature is glossy surfaces, neon-tinged ambient light, and cinematic twilight coloration."
+    },
+    "Window Light Interior": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.73,
+      "commentary": "A minimalist room with natural window light is mostly achieved: sparse space, large windows, and strong directional light beams. The main compromise is the theatricality\u2014god rays and heavy shadow patterning feel more like a staged cinematic set than typical interior photography, and the room reads slightly too empty/idealized. Mood is calm but dramatic rather than simply natural. The profile signature is cool, silvery daylight, pronounced volumetric light, and smooth, high-dynamic-range tonal control."
+    },
+    "Motion Blur Abstract": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.71,
+      "commentary": "The grocery aisle setting is identifiable and the motion blur concept is present, creating an abstracted sense of speed. However, the look is highly neon-synthetic\u2014glossy reflections, saturated rainbow lighting, and ultra-clean surfaces push it toward sci-fi retail rather than real grocery ambience. The blur also feels algorithmic and uniform instead of camera-driven imperfection. The profile signature is intense chroma, reflective floors, and a cyberpunk-leaning color grade."
+    },
+    "Documentary Portrait Test": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.76,
+      "commentary": "The close-up elderly fisherman portrait is compelling and detailed, with strong texture in skin and a direct gaze that fits the subject request. The mismatch is the \u201c35mm film documentary\u201d claim: the image is too clean, too sharpened, and too studio-dramatic with deep vignetting, lacking film grain, halation, or casual documentary context. Mood is intense and chiaroscuro rather than observational. The profile signature is high micro-contrast, cool shadow bias, and cinematic low-key lighting."
+    },
+    "Fine Art Landscape Test": {
+      "affinity": "native_fit",
+      "score": 8,
+      "confidence": 0.8,
+      "commentary": "Fine art forest landscape is well met: moody woodland, a leading path, and a reflective water feature create a curated, poetic composition. The heavy blue toning and mist give it an ethereal, gallery-print feel consistent with fine art rather than straight nature documentation. Minor style drift shows in the slightly surreal smoothness and exaggerated atmosphere, but it remains on aesthetic brief. The profile signature is monochrome-blue grading, fog diffusion, and painterly smooth transitions with strong compositional leading lines."
+    },
+    "Commercial Product Test": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.74,
+      "commentary": "A glass of whiskey with ice is clearly presented with strong specular highlights and a bar-like background bokeh, aligning with product photography fundamentals. The compromise is the aggressive neon color spill and hyper-slick reflections, which make it feel more like stylized CGI advertising than a realistic commercial tabletop setup. The liquid/ice rendering is attractive but slightly over-saturated and over-sharpened. The profile signature is high gloss, vivid magenta/blue rim lighting, and dramatic contrast on reflective surfaces."
+    },
+    "Street Test - Woman in Tokyo": {
+      "affinity": "resistant",
+      "score": 4,
+      "confidence": 0.77,
+      "commentary": "While the setting suggests Tokyo (dense signage, narrow street), it fails the \u201ccandid street photography\u201d requirement: the subject is posed and styled like a cinematic character shot, with deliberate framing and mood lighting. The overall grading is muted-noir and polished, lacking the spontaneous, imperfect feel of real street capture. Composition reads as staged editorial rather than candid observation. The profile signature shows in cool desaturation, misty atmosphere, and controlled cinematic contrast with neon accents."
+    },
+    "Architecture Test": {
+      "affinity": "native_fit",
+      "score": 8,
+      "confidence": 0.81,
+      "commentary": "A modern office building against a stormy sky is delivered effectively: rectilinear glass volumes, reflective surfaces, and a threatening cloud mass establish the prompt. The scene is slightly surreal in its emptiness and foggy flat ground plane, but it still reads as architectural photography with dramatic weather. Lighting inside the building adds believable occupancy cues. The profile signature is cool gray-blue grading, soft haze, and cinematic storm contrast with crisp geometric forms."
+    },
+    "Food Test": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.78,
+      "commentary": "The subject reads clearly as a bowl of ramen on a wooden table, with convincing steam and food styling, but it leans more toward cinematic still-life than straightforward food photography. Lighting is heavily dramatized (moody lantern bokeh, deep shadows) and the scene dressing is more narrative/props-forward than typical commercial ramen shots. The profile\u2019s signature here is low-key, warm-amber illumination with teal-green food accents, shallow depth-of-field, and a slightly painterly micro-contrast that nudges it away from pure photographic realism."
+    },
+    "Sports Test": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.74,
+      "commentary": "It captures the core action\u2014two female players contesting the ball\u2014with strong motion cues, but the atmosphere is stylized to the point of feeling like an ad/composite rather than sports photojournalism. The fog/dust stage-lighting and backlit silhouette treatment reduce facial/kit detail and realism. The profile\u2019s aesthetic shows up as high-contrast, smoky ambience, desaturated tones, and a dramatic spotlight gradient that prioritizes mood over documentary accuracy."
+    },
+    "Fashion Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.84,
+      "commentary": "The image strongly matches fashion photography: a model in a flowing dress placed in a desert environment with editorial composition and controlled light. The mood is cinematic and melancholic, but still consistent with high-end fashion storytelling. The profile\u2019s signature is dusk-toned color grading (cool shadows, warm horizon), soft atmospheric haze, and a refined, filmic contrast that gives the fabric and landscape a romantic, sculpted presence."
+    },
+    "Wildlife Test": {
+      "affinity": "native_fit",
+      "score": 8,
+      "confidence": 0.8,
+      "commentary": "A lioness on savannah looking toward the camera is correctly delivered, with believable habitat cues and a natural pose. It\u2019s slightly too \u2018golden-hour postcard\u2019 and polished\u2014more fine-art wildlife than raw field capture\u2014but still squarely within wildlife photography aesthetics. The profile\u2019s look is evident in the warm sunset banding, creamy background blur, and gentle, cinematic grading that emphasizes serenity over tension."
+    },
+    "Cyberpunk Digital": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.83,
+      "commentary": "The cyberpunk brief is hit cleanly: neon signage, rain-slick surfaces, dense vertical city massing, and a lone figure silhouette to anchor scale. The mood is appropriately nocturnal and humid, with strong atmospheric perspective and glow. The profile\u2019s signature is a cool blue-violet base palette punctuated by magenta neon, soft fog diffusion, and a painterly-yet-detailed environment rendering that feels cinematic rather than graphic."
+    },
+    "Abstract Expressionism": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.7,
+      "commentary": "It presents bold, gestural paint movement and contrasting colors, but the execution reads as highly controlled, glossy impasto\u2014closer to digital \u2018oil paint simulation\u2019 than raw abstract expressionist spontaneity. The forms feel decorative and sculpted rather than aggressively gestural. The profile\u2019s aesthetic comes through in saturated purples/pinks with luminous highlights, thick ribbon-like texture, and dramatic lighting that adds a 3D sheen."
+    },
+    "Minimalist Gradient Painting": {
+      "affinity": "resistant",
+      "score": 3,
+      "confidence": 0.82,
+      "commentary": "The prompt asks for a minimalist painting with a simple gradient suggesting landscape, but the image is essentially a moody, semi-photoreal atmospheric landscape with trees, a house, and strong detail. The gradient is present in the sky, yet the composition is not minimalist and reads more like cinematic landscape photography/photopaint. The profile\u2019s signature remains: cool blue-gray fog, a striking red horizon band, and soft-focus, dreamy diffusion that prioritizes mood over minimal form."
+    },
+    "3D Render Concept": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.73,
+      "commentary": "The scene includes futuristic architecture/vehicle-like structure in a rainy city, which fits the concept requirement, but it doesn\u2019t read as a clean 3D render\u2014more like cinematic concept art with photoreal grading. Materials and lighting are plausible, yet the overall image is softened by haze and filmic diffusion rather than crisp render clarity. The profile\u2019s signature is cold steel-blue tonality, wet reflective surfaces, dense urban layering, and subdued highlights that create a brooding, dystopian calm."
+    },
+    "Pop Surrealism Portrait": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.72,
+      "commentary": "The portrait has pop-surreal cues (oversized eyes, doll-like face) and unexpected background elements (diagrammatic sketches, odd devices), but the \u2018reality-bending\u2019 aspect is more illustrative eccentricity than genuinely surreal transformation. The rendering is polished and controlled, leaning toward gothic illustration rather than pop-bright surrealism. The profile\u2019s signature shows in muted cream/gray grounds, precise linework overlays, and a cool, slightly melancholic palette with selective red accents."
+    },
+    "Whimsical Illustration - Fantasy Character": {
+      "affinity": "native_fit",
+      "score": 8,
+      "confidence": 0.78,
+      "commentary": "The image reads as whimsical illustration with a playful, fantastical character pairing and small toy-like details, matching the prompt well. The mood is more wistful than exuberant, but still within whimsical storybook territory. The profile\u2019s signature is soft desaturation, lots of negative space, delicate ink-like marks, and gentle watercolor-ish shading that creates a tender, slightly eerie charm."
+    },
+    "Children's Book Illustration Test": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.76,
+      "commentary": "It delivers ink-and-watercolor storybook styling and a cat holding a teacup, but the setting reads more like a rustic doorstep/yard than a clear garden scene, and the action of \u2018drinking\u2019 is implied rather than explicit. The mood is subdued and nostalgic, arguably too melancholic for typical children\u2019s book brightness. The profile\u2019s signature is textured paper feel, fine ink detailing, muted earth tones, and softly weathered surfaces that push it toward quiet, vintage illustration."
+    },
+    "Abstract Test - Oil and Brushstrokes": {
+      "affinity": "resistant",
+      "score": 4,
+      "confidence": 0.77,
+      "commentary": "Despite the prompt calling for abstract expressionist oil shapes and brushstrokes, the image reads primarily as an atmospheric cityscape with reflections\u2014more impressionistic/abstracted landscape than non-representational expressionism. Brushiness is present, but it\u2019s organized into skyline-like forms rather than free abstract structure. The profile\u2019s signature is moody violet-blue haze, scattered neon-like color pops, and soft vertical smears that mimic rain/reflection more than gestural oil painting."
+    },
+    "Digital Concept Art - Futuristic Airborne City": {
+      "affinity": "resistant",
+      "score": 4,
+      "confidence": 0.75,
+      "commentary": "It succeeds as futuristic city concept art, but it does not clearly depict an airborne city\u2014there\u2019s no strong evidence of levitation, sky platforms, or flight; it reads as canal/river megacity at ground level. The atmosphere and scale are compelling, yet the core subject requirement is compromised. The profile\u2019s signature remains consistent: blue-gray fog, dense industrial silhouettes, wet reflective surfaces, and magenta neon accents for cyber-noir mood."
+    },
+    "Charcoal Sketch Test": {
+      "affinity": "native_fit",
+      "score": 9,
+      "confidence": 0.86,
+      "commentary": "The medium and mood align strongly: a black-and-white, charcoal-like sketch on textured paper with a clearly melancholy seated figure. Smudging, soft shading, and scratchy linework sell the charcoal technique convincingly, and the composition feels intimate and withdrawn. The profile\u2019s signature is subdued tonal range with velvety darks, hazy edges, and a fashion-goth sensibility that heightens emotional weight without breaking the sketch aesthetic."
+    },
+    "Vector/Logo Test": {
+      "affinity": "resistant",
+      "score": 1,
+      "confidence": 0.93,
+      "commentary": "This completely misses the requested flat vector icon style: it\u2019s a highly rendered, glossy, fur-textured fox head with dramatic lighting and painterly strands. There\u2019s no flat shapes, simplified geometry, or logo-like clarity; it reads as digital illustration/render art. The profile\u2019s signature is intense contrast, blue-orange complementary coloring, and luminous, ribboned textures that prioritize realism and drama over graphic simplicity."
+    },
+    "Graphic Novel - Noir Anime Steampunk": {
+      "affinity": "workable",
+      "score": 7,
+      "confidence": 0.78,
+      "commentary": "The image nails the noir-steampunk atmosphere: wet streets, fog, towering clockwork-industrial architecture, and a strongly desaturated, high-contrast mood. However, it reads more like cinematic concept art/photobash than a graphic-novel or anime illustration\u2014there\u2019s little of the clean linework, cel shading, or panel-ink language that would signal \u201canime\u201d or \u201cgraphic novel.\u201d Subject/composition is coherent (silhouetted figures in a looming city), but the characters are too small and indistinct to carry the anime cue. The profile signature here is a cool monochrome palette, heavy atmospheric perspective, and a polished, filmic realism with soft haze and reflective highlights rather than illustrative mark-making."
+    },
+    "Watercolor Painting - Rose Garden": {
+      "affinity": "resistant",
+      "score": 4,
+      "confidence": 0.74,
+      "commentary": "While the scene depicts a lush garden with roses and a path, the medium does not convincingly read as watercolor\u2014there are no clear transparent washes, blooms, paper grain, or edge pooling typical of watercolor technique. Instead it feels like a highly rendered digital painting with smooth gradients and airbrushed depth, leaning toward fantasy landscape concept art. Mood is dreamy and cool-toned, which is aesthetically pleasing but not specifically \u201cwatercolor painting\u201d in execution. The profile\u2019s stylistic fingerprint shows in the misty blue-violet atmosphere, saturated floral accents, and a glossy, controlled finish that suppresses traditional watercolor imperfections."
+    },
+    "Pop Art Test - Mixed Media Collage": {
+      "affinity": "workable",
+      "score": 6,
+      "confidence": 0.7,
+      "commentary": "The portrait strongly features a woman with eyewear and a layered, poster-like treatment, with visible collage cues (newsprint textures, overprinted color blocks, drips) that partially satisfy the mixed-media brief. However, it skews toward contemporary digital street-art/glitch portraiture rather than classic Pop Art collage: halftone-dot language is minimal, and the \u201clayered cut paper elements\u201d don\u2019t read as physically cut shapes with distinct edges/shadows. The composition is tight and graphic, but the overall tone is moody and editorial instead of bold, punchy Pop Art. The profile\u2019s signature appears as high-detail facial rendering, restrained grayscale base with selective neon accents (magenta/cyan/yellow), and textured overlays that mimic print distress rather than true paper assembly."
+    },
+    "Impressionist Oil Painting Test": {
+      "affinity": "resistant",
+      "score": 3,
+      "confidence": 0.76,
+      "commentary": "The subject is correct (countryside landscape with a cottage and winding path), but the technique is not impressionist oil: there\u2019s no broken brushwork, visible impasto, or color-scumbled strokes; it reads as photorealistic/digital matte painting. The lighting and atmosphere are cinematic and subdued, with crisp depth cues and smooth tonal transitions that contradict impressionism\u2019s painterly immediacy. Compositionally it\u2019s strong but too polished and literal for the requested movement. The profile\u2019s consistent aesthetic shows again: cool, desaturated grading, dramatic sky, and a hyper-controlled, realistic texture treatment that minimizes brushstroke evidence."
+    }
+  },
+  "affinity_summary": {
+    "native_fit": [
+      "Foggy City Aerial",
+      "Neon Rain Alley",
+      "Coastal Wave",
+      "Winter Forest Mist",
+      "Vintage Drive-In",
+      "Fine Art Landscape Test",
+      "Architecture Test",
+      "Fashion Test",
+      "Wildlife Test",
+      "Cyberpunk Digital",
+      "Whimsical Illustration - Fantasy Character",
+      "Charcoal Sketch Test"
+    ],
+    "workable": [
+      "Night Urban Traffic",
+      "Alpine Stream",
+      "Documentary Environmental Portrait",
+      "Window Light Interior",
+      "Motion Blur Abstract",
+      "Documentary Portrait Test",
+      "Commercial Product Test",
+      "Food Test",
+      "Sports Test",
+      "Abstract Expressionism",
+      "3D Render Concept",
+      "Pop Surrealism Portrait",
+      "Children's Book Illustration Test",
+      "Graphic Novel - Noir Anime Steampunk",
+      "Pop Art Test - Mixed Media Collage"
+    ],
+    "resistant": [
+      "Street Test - Woman in Tokyo",
+      "Minimalist Gradient Painting",
+      "Abstract Test - Oil and Brushstrokes",
+      "Digital Concept Art - Futuristic Airborne City",
+      "Vector/Logo Test",
+      "Watercolor Painting - Rose Garden",
+      "Impressionist Oil Painting Test"
+    ]
+  },
+  "analysis_version": "2.3-signature"
+}
