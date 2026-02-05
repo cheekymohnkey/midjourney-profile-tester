@@ -3,8 +3,9 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
+from storage import get_storage
 
-TEST_PROMPTS_FILE = Path("test_prompts.json")
+TEST_PROMPTS_FILE = "test_prompts.json"
 
 def load_tests(status_filter: Optional[str] = None) -> List[Dict]:
     """Load test prompts from JSON file.
@@ -15,11 +16,9 @@ def load_tests(status_filter: Optional[str] = None) -> List[Dict]:
     Returns:
         List of test prompt dictionaries
     """
-    if not TEST_PROMPTS_FILE.exists():
-        return []
-    
-    with open(TEST_PROMPTS_FILE, 'r') as f:
-        tests = json.load(f)
+    storage = get_storage()
+    data = storage.read_json(TEST_PROMPTS_FILE)
+    tests = data if isinstance(data, list) else []
     
     if status_filter:
         tests = [t for t in tests if t.get('status') == status_filter]
@@ -28,8 +27,8 @@ def load_tests(status_filter: Optional[str] = None) -> List[Dict]:
 
 def save_tests(tests: List[Dict]):
     """Save test prompts to JSON file."""
-    with open(TEST_PROMPTS_FILE, 'w') as f:
-        json.dump(tests, f, indent=2)
+    storage = get_storage()
+    storage.write_json(TEST_PROMPTS_FILE, tests)
 
 def add_test(title: str, prompt: str, section: str, params: str, 
              status: str = 'current', version: str = 'v2') -> Dict:

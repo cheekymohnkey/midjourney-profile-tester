@@ -5,20 +5,24 @@ Configuration for MidJourney Profile Tester.
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from storage import init_storage, get_storage
 
 # Load environment variables from .env file
 load_dotenv(override=True)
 
+# Initialize storage backend (S3 or local based on environment)
+storage = init_storage()
+
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent
 
-# Data directories
-PROFILE_ANALYSES_DIR = PROJECT_ROOT / 'profile_analyses'
-PROFILE_RESULTS_DIR = PROJECT_ROOT / 'profile_results'
-BACKUP_DIR = PROFILE_ANALYSES_DIR / 'backups'
+# Data directories (paths used with storage backend)
+PROFILE_ANALYSES_DIR = 'profile_analyses'
+PROFILE_RESULTS_DIR = 'profile_results'
+BACKUP_DIR = 'profile_analyses/backups'
 
 # Test prompts file
-TEST_PROMPTS_FILE = PROJECT_ROOT / 'test_prompts.json'
+TEST_PROMPTS_FILE = 'test_prompts.json'
 
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
@@ -36,15 +40,15 @@ MIN_RATINGS_FOR_DNA = 10  # Minimum ratings before generating profile DNA
 # Ensure required directories exist
 def ensure_directories():
     """Create necessary directories if they don't exist."""
-    PROFILE_ANALYSES_DIR.mkdir(exist_ok=True, parents=True)
-    PROFILE_RESULTS_DIR.mkdir(exist_ok=True, parents=True)
-    BACKUP_DIR.mkdir(exist_ok=True, parents=True)
+    storage.ensure_directory(PROFILE_ANALYSES_DIR)
+    storage.ensure_directory(PROFILE_RESULTS_DIR)
+    storage.ensure_directory(BACKUP_DIR)
 
 def ensure_files():
     """Initialize required files if they don't exist."""
     # Initialize test prompts file if missing
-    if not TEST_PROMPTS_FILE.exists():
-        TEST_PROMPTS_FILE.write_text('[]')
+    if not storage.exists(TEST_PROMPTS_FILE):
+        storage.write_json(TEST_PROMPTS_FILE, [])
         print(f'Initialized empty test prompts file: {TEST_PROMPTS_FILE}')
 
 # Auto-initialize on import
