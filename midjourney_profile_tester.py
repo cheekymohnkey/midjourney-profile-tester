@@ -98,6 +98,66 @@ def load_tests_df(status_filter='current'):
     })
     return df[['Section', 'Title', 'Prompt', 'Parameter Values']]
 
+@st.fragment
+def render_test_upload(profile_id, test_name, output_dir, idx):
+    """Fragment to handle individual test image upload without full page rerun."""
+    st.markdown(f"**{test_name}**")
+    
+    # Create safe filename - new uploads will be .jpg
+    safe_name = test_name.replace(' ', '_').replace('/', '_')
+    filename = f"{profile_id if profile_id else 'baseline'}_{safe_name}.jpg"
+    filepath = output_dir / filename
+    
+    # Check if image exists (handles both .jpg and .png)
+    existing_filepath = find_image_file(output_dir, profile_id if profile_id else 'baseline', test_name)
+    if existing_filepath:
+        # Load image from storage for display
+        img_display = load_image(existing_filepath)
+        st.image(img_display, use_container_width=True)
+        if st.button("🗑️", key=f"delete_{idx}"):
+            existing_filepath.unlink()
+            st.rerun(scope="fragment")
+    else:
+        # Paste button and file uploader
+        paste_col, upload_col = st.columns([1, 1])
+        
+        with paste_col:
+            image_data = paste(
+                label="📋 Paste",
+                key=f"paste_{profile_id if profile_id else 'baseline'}_{idx}"
+            )
+            
+            if image_data is not None:
+                # Decode base64 image
+                header, encoded = image_data.split(",", 1)
+                binary_data = base64.b64decode(encoded)
+                bytes_data = BytesIO(binary_data)
+                img = Image.open(bytes_data)
+                # Optimize and save as JPEG
+                img = optimize_image_for_storage(img)
+                filepath = filepath.with_suffix('.jpg')
+                save_image(filepath, img, format='JPEG', quality=90)
+                st.success("✅ Pasted!")
+                st.rerun(scope="fragment")
+        
+        with upload_col:
+            uploaded = st.file_uploader(
+                "📤 Upload",
+                type=['png', 'jpg', 'jpeg', 'webp'],
+                key=f"upload_{profile_id if profile_id else 'baseline'}_{idx}",
+                help="Drag & drop or click to browse",
+                label_visibility="collapsed"
+            )
+            
+            if uploaded:
+                # Optimize and save as JPEG
+                img = Image.open(uploaded)
+                img = optimize_image_for_storage(img)
+                filepath = filepath.with_suffix('.jpg')
+                save_image(filepath, img, format='JPEG', quality=90)
+                st.success("✅ Saved!")
+                st.rerun(scope="fragment")
+
 def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_ratings=None):
     """
     Send all uploaded images to OpenAI for batch analysis.
@@ -785,7 +845,7 @@ elif st.session_state.page == 'images' and proceed:
                 st.warning(f"⚠️ Showing {len(all_images)}/{len(df)} images. Upload missing images to see complete set.")
         
         else:
-            # Normal mode - show upload UI
+            # Normal mode - show upload UI with fragments to prevent full page reloads
             for section in sections:
                 section_tests = df[df['Section'] == section]
                 st.markdown(f"### {section}")
@@ -803,62 +863,8 @@ elif st.session_state.page == 'images' and proceed:
                             test_name = row['Title']
                             
                             with col:
-                                st.markdown(f"**{test_name}**")
-                                
-                                # Create safe filename - new uploads will be .jpg
-                                safe_name = test_name.replace(' ', '_').replace('/', '_')
-                                filename = f"{profile_id if profile_id else 'baseline'}_{safe_name}.jpg"
-                                filepath = output_dir / filename
-                                
-                                # Check if image exists (handles both .jpg and .png)
-                                existing_filepath = find_image_file(output_dir, profile_id if profile_id else 'baseline', test_name)
-                                if existing_filepath:
-                                    # Load image from storage for display
-                                    img_display = load_image(existing_filepath)
-                                    st.image(img_display, use_container_width=True)
-                                    if st.button("🗑️", key=f"delete_{idx}"):
-                                        existing_filepath.unlink()
-                                        st.rerun()
-                                else:
-                                    # Paste button and file uploader
-                                    paste_col, upload_col = st.columns([1, 1])
-                                    
-                                    with paste_col:
-                                        image_data = paste(
-                                            label="📋 Paste",
-                                            key=f"paste_{profile_id if profile_id else 'baseline'}_{idx}"
-                                        )
-                                        
-                                        if image_data is not None:
-                                            # Decode base64 image
-                                            header, encoded = image_data.split(",", 1)
-                                            binary_data = base64.b64decode(encoded)
-                                            bytes_data = BytesIO(binary_data)
-                                            img = Image.open(bytes_data)
-                                            # Optimize and save as JPEG
-                                            img = optimize_image_for_storage(img)
-                                            filepath = filepath.with_suffix('.jpg')
-                                            save_image(filepath, img, format='JPEG', quality=90)
-                                            st.success("✅ Pasted!")
-                                            st.rerun()
-                                    
-                                    with upload_col:
-                                        uploaded = st.file_uploader(
-                                            "📤 Upload",
-                                            type=['png', 'jpg', 'jpeg', 'webp'],
-                                            key=f"upload_{profile_id if profile_id else 'baseline'}_{idx}",
-                                            help="Drag & drop or click to browse",
-                                            label_visibility="collapsed"
-                                        )
-                                        
-                                        if uploaded:
-                                            # Optimize and save as JPEG
-                                            img = Image.open(uploaded)
-                                            img = optimize_image_for_storage(img)
-                                            filepath = filepath.with_suffix('.jpg')
-                                            save_image(filepath, img, format='JPEG', quality=90)
-                                            st.success("✅ Saved!")
-                                            st.rerun()
+                                # Each test gets its own fragment to prevent full page reloads
+                                render_test_upload(profile_id, test_name, output_dir, idx)
                 
                 st.markdown("---")
         
