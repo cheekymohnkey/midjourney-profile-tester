@@ -248,6 +248,9 @@ Evaluate the CONSISTENCY and STRENGTH of the profile's natural aesthetic signatu
   * For standard tests: How well the prompt was fulfilled
   * For VOID tests: Consistency of recurring visual patterns
 - **confidence**: Float 0.0-1.0 indicating your confidence in the rating
+- **rendering_style**: Integer 1-10 rating (VOID tests only)
+  * For VOID_PHOTO tests (using photo parameters): Rate PHOTOGRAPHIC STRENGTH - How photographic/realistic are the results? (1 = painterly/abstract, 10 = sharp photographic realism)
+  * For VOID_ART tests (using art parameters): Rate ARTISTIC STRENGTH - How painterly/artistic are the results? (1 = photographic/realistic, 10 = strong painterly/abstract)
 - **commentary**: 3-4 sentences explaining:
   * For standard tests: (1) How well the image achieves the prompt's requested aesthetic (medium accuracy, mood match, subject correctness), AND (2) The profile's unique aesthetic signature in this image
   * For VOID tests: What visual patterns recur across the images - describe recurring tonal qualities, color schemes, textures, lighting, compositional habits, and atmospheric preferences
@@ -610,18 +613,29 @@ if not st.session_state.fullscreen:
     
     # Check analysis versions for existing profiles
     profile_versions = {}
+    profile_completion = {}
     profile_analyses_dir = Path("profile_analyses")
-    if profile_analyses_dir.exists():
-        import json
-        for profile in existing_profiles:
-            analysis_file = profile_analyses_dir / f"{profile}_analysis.json"
-            if analysis_file.exists():
-                try:
-                    data = get_storage().read_json(str(analysis_file))
-                    version = data.get('analysis_version', 'unknown')
-                    profile_versions[profile] = version
-                except:
-                    profile_versions[profile] = 'error'
+    
+    # Get total test count and test names
+    current_tests = tpm.load_tests(status_filter='current')
+    total_tests = len(current_tests)
+    current_test_names = set(t.get('title', '') for t in current_tests)
+    
+    for profile in existing_profiles:
+        analysis_file = profile_analyses_dir / f"{profile}_analysis.json"
+        try:
+            # Try to read from storage (works for both local and S3)
+            data = get_storage().read_json(str(analysis_file))
+            version = data.get('analysis_version', 'unknown')
+            profile_versions[profile] = version
+            # Check completion - only count ratings for current tests
+            ratings = data.get('ratings', {})
+            valid_ratings = [t for t in ratings.keys() if t in current_test_names]
+            profile_completion[profile] = (len(valid_ratings) == total_tests)
+        except:
+            # File doesn't exist or can't be read
+            profile_versions[profile] = 'unknown'
+            profile_completion[profile] = False
     
     # Add option to select from existing profiles or enter new
     col_a, col_b = st.columns([1, 1])
@@ -632,12 +646,18 @@ if not st.session_state.fullscreen:
                 if not profile:
                     return ""
                 version = profile_versions.get(profile, 'unknown')
+                is_complete = profile_completion.get(profile, False)
+                
+                # Build status indicators
+                status = ""
+                if is_complete:
+                    status += "✅ "
                 if version == ANALYSIS_PROMPT_VERSION:
-                    return f"{profile} ✓"
+                    status += "✓ "
                 elif version != 'unknown':
-                    return f"{profile} ⚠️"
-                else:
-                    return profile
+                    status += "⚠️ "
+                
+                return f"{profile} {status}".strip() if status else profile
             
             profile_options = [""] + existing_profiles
             
@@ -652,7 +672,7 @@ if not st.session_state.fullscreen:
                 format_func=lambda i: format_profile_option(profile_options[i]),
                 index=default_index,
                 key="profile_selector_dropdown",
-                help="Choose a profile you've already tested (✓ = current version, ⚠️ = outdated)"
+                help="Choose a profile you've already tested (✅ = all tests complete, ✓ = current version, ⚠️ = outdated)"
             )
             selected_profile = profile_options[selected_index]
         else:
@@ -931,29 +951,38 @@ elif st.session_state.page == 'images' and proceed:
                 section_tests = df[df['Section'] == section]
                 st.markdown(f"### {section}")
             
-                # Create grid - 5 columns per row
-                tests_list = list(section_tests.iterrows())
+                # Check if this section has multi-image tests (VOID tests)
+                has_void_tests = any(name in ["Null Prompt (Photo)", "Null Prompt (Art)"] for name in section_tests['Title'].values)
                 
-                for row_idx in range(0, len(tests_list), 5):
-                    cols = st.columns(5)
-                    
-                    for col_idx, col in enumerate(cols):
-                        test_idx = row_idx + col_idx
-                        if test_idx < len(tests_list):
-                            idx, row = tests_list[test_idx]
-                            test_name = row['Title']
+                if has_void_tests:
+                    # VOID tests get full width display
+                    for idx, row in section_tests.iterrows():
+                        test_name = row['Title']
+                        if test_name in ["Null Prompt (Photo)", "Null Prompt (Art)"]:
+                            st.markdown(f"**{test_name}** - Upload 8 unseeded images")
                             
-                            with col:
-                                # Check if this is a multi-image test (like Null Prompt)
-                                if test_name == "Null Prompt":
-                                    # Show 8 upload slots for void test
-                                    st.markdown(f"**{test_name}** (8 images)")
-                                    st.markdown("Upload 8 unseeded images:")
-                                    for img_num in range(1, 9):
+                            # Create 4 columns for the 8 images (2 rows of 4)
+                            for row_num in range(2):
+                                cols = st.columns(4)
+                                for col_idx, col in enumerate(cols):
+                                    img_num = row_num * 4 + col_idx + 1
+                                    with col:
                                         render_test_upload(profile_id, test_name, output_dir, f"{idx}_{img_num}", image_num=img_num)
-                                        if img_num < 8:
-                                            st.markdown("---")
-                                else:
+                            st.markdown("---")
+                else:
+                    # Regular tests - Create grid - 5 columns per row
+                    tests_list = list(section_tests.iterrows())
+                    
+                    for row_idx in range(0, len(tests_list), 5):
+                        cols = st.columns(5)
+                        
+                        for col_idx, col in enumerate(cols):
+                            test_idx = row_idx + col_idx
+                            if test_idx < len(tests_list):
+                                idx, row = tests_list[test_idx]
+                                test_name = row['Title']
+                                
+                                with col:
                                     # Single image per test (normal)
                                     render_test_upload(profile_id, test_name, output_dir, idx)
                 
@@ -1008,6 +1037,51 @@ elif st.session_state.page == 'rate':
             st.warning("⚠️ No test prompts found")
             st.stop()
         
+        # Add export all profiles button at the top
+        st.markdown("---")
+        col_export, col_spacer = st.columns([1, 3])
+        with col_export:
+            if st.button("📦 Export All Profiles", help="Download all profile analyses as a single JSON file"):
+                # Get list of all profiles from storage
+                all_files = get_storage().list_files("profile_results", "*")
+                profile_dirs = set()
+                for file_path in all_files:
+                    parts = file_path.split('/')
+                    if len(parts) >= 2:
+                        profile_dirs.add(parts[1])
+                
+                # Collect all profile analyses
+                all_profiles = {}
+                profile_analyses_dir = Path("profile_analyses")
+                
+                for prof in sorted(profile_dirs):
+                    analysis_file = profile_analyses_dir / f"{prof}_analysis.json"
+                    try:
+                        data = get_storage().read_json(str(analysis_file))
+                        all_profiles[prof] = data
+                    except Exception as e:
+                        # Skip profiles without analysis files
+                        pass
+                
+                # Create JSON string
+                import json
+                from datetime import datetime
+                export_data = {
+                    "export_date": datetime.now().strftime("%Y-%m-%d"),
+                    "total_profiles": len(all_profiles),
+                    "profiles": all_profiles
+                }
+                json_str = json.dumps(export_data, indent=2)
+                
+                # Offer download
+                st.download_button(
+                    label="💾 Download profiles.json",
+                    data=json_str,
+                    file_name="midjourney_profiles_export.json",
+                    mime="application/json"
+                )
+        st.markdown("---")
+        
         # Check which images are uploaded
         output_dir = Path("profile_results") / display_profile_id
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -1023,7 +1097,9 @@ elif st.session_state.page == 'rate':
         # Progress summary
         ratings = analysis_data.get("ratings", {})
         total_tests = len(df)
-        rated_tests = len(ratings)
+        # Only count ratings for tests that actually exist
+        current_test_names = set(df['Title'].tolist())
+        rated_tests = len([t for t in ratings.keys() if t in current_test_names])
         
         # Check analysis version
         current_version = ANALYSIS_PROMPT_VERSION
@@ -1045,8 +1121,8 @@ elif st.session_state.page == 'rate':
                 for idx, row in df.iterrows():
                     test_name = row['Title']
                     
-                    # Check if this is a multi-image test (Null Prompt)
-                    if test_name == "Null Prompt":
+                    # Check if this is a multi-image test (Null Prompt tests)
+                    if test_name in ["Null Prompt (Photo)", "Null Prompt (Art)"]:
                         # Collect all void images
                         void_images = []
                         for img_num in range(1, 9):
@@ -1165,8 +1241,8 @@ elif st.session_state.page == 'rate':
                 for idx, row in df.iterrows():
                     test_name = row['Title']
                     
-                    # Check if this is a multi-image test (Null Prompt)
-                    if test_name == "Null Prompt":
+                    # Check if this is a multi-image test (Null Prompt tests)
+                    if test_name in ["Null Prompt (Photo)", "Null Prompt (Art)"]:
                         # Collect all void images
                         void_images = []
                         for img_num in range(1, 9):
@@ -1300,12 +1376,16 @@ elif st.session_state.page == 'rate':
                                             st.success(msg)
                                             st.session_state.auto_continue_rating = False  # Stop auto-continue
                                             st.session_state.show_auto_rate = False
+                                            import time
+                                            time.sleep(0.5)
                                             st.rerun()
                                         else:
                                             # More tests remaining - automatically continue to next batch
                                             msg = f"✅ Rated {new_rating_count} test{'s' if new_rating_count != 1 else ''}! ({remaining} remaining - continuing automatically...)"
                                             st.success(msg)
                                             # Keep auto_continue_rating = True and rerun to trigger next batch
+                                            import time
+                                            time.sleep(0.5)
                                             st.rerun()
                                     elif batch_result is None:
                                         st.info("No unrated tests found.")
@@ -1441,8 +1521,8 @@ elif st.session_state.page == 'rate':
             if show_filter == "Rated Only" and not is_rated:
                 continue
             
-            # Check if this is a multi-image test (Null Prompt)
-            is_multi_image = (test_name == "Null Prompt")
+            # Check if this is a multi-image test (Null Prompt tests)
+            is_multi_image = (test_name in ["Null Prompt (Photo)", "Null Prompt (Art)"])
             
             if is_multi_image:
                 # For void test, check if at least one image exists
@@ -1515,6 +1595,30 @@ elif st.session_state.page == 'rate':
                             help="How consistent are the visual patterns across all images? 1 = Random/chaotic, 10 = Strong consistent signature"
                         )
                         
+                        # Rendering style slider - different for PHOTO vs ART void tests
+                        is_photo_void = "Photo" in test_name
+                        if is_photo_void:
+                            rendering_style = st.slider(
+                                "Photographic Strength",
+                                min_value=1,
+                                max_value=10,
+                                value=existing_rating.get('rendering_style', 5),
+                                key=f"rendering_{test_name}",
+                                help="How photographic are the results? 1 = Painterly/abstract | 10 = Sharp photographic realism"
+                            )
+                            style_label = "📷 Photographic" if rendering_style >= 7 else "🎨 Hybrid" if rendering_style >= 4 else "🖌️ Painterly"
+                        else:
+                            rendering_style = st.slider(
+                                "Artistic Strength",
+                                min_value=1,
+                                max_value=10,
+                                value=existing_rating.get('rendering_style', 5),
+                                key=f"rendering_{test_name}",
+                                help="How painterly/artistic are the results? 1 = Photographic/realistic | 10 = Strong painterly/abstract"
+                            )
+                            style_label = "🖌️ Painterly" if rendering_style >= 7 else "🎨 Hybrid" if rendering_style >= 4 else "📷 Photographic"
+                        st.caption(f"**{style_label}**")
+                        
                         # Confidence level
                         confidence_options = ["High", "Medium", "Low"]
                         raw_confidence = existing_rating.get('confidence', 'High')
@@ -1547,14 +1651,59 @@ elif st.session_state.page == 'rate':
                         help="What color schemes appear repeatedly?"
                     )
                     
-                    # Commentary
-                    commentary = st.text_area(
-                        "Observations (optional)",
-                        value=existing_rating.get('commentary', ''),
-                        placeholder="What visual elements recur? Lighting patterns? Textures? Compositional habits?",
-                        height=100,
-                        key=f"commentary_{test_name}"
-                    )
+                    # Commentary with AI button
+                    col_comment, col_ai = st.columns([3, 1])
+                    
+                    with col_comment:
+                        commentary = st.text_area(
+                            "Observations (optional)",
+                            value=existing_rating.get('commentary', ''),
+                            placeholder="What visual elements recur? Lighting patterns? Textures? Compositional habits?",
+                            height=100,
+                            key=f"commentary_{test_name}"
+                        )
+                    
+                    with col_ai:
+                        st.markdown("&nbsp;")  # Spacing
+                        has_rating = test_name in analysis_data.get('ratings', {})
+                        ai_btn_label = "🔄 Re-rate" if has_rating else "🤖 AI Rate"
+                        ai_btn_help = "Generate full AI rating (affinity, score, commentary) - will overwrite existing" if has_rating else "Generate full AI rating using OpenAI Vision"
+                        
+                        if st.button(ai_btn_label, key=f"ai_comment_{test_name}", help=ai_btn_help, type="secondary" if has_rating else "primary"):
+                            with st.spinner("🤖 Analyzing with AI..."):
+                                # Get OpenAI API key from config
+                                import config
+                                api_key = config.OPENAI_API_KEY
+                                if not api_key:
+                                    st.error("⚠️ OPENAI_API_KEY not set in .env file")
+                                else:
+                                    try:
+                                        # Collect all void image paths
+                                        void_image_paths = []
+                                        for img_num in range(1, 9):
+                                            fp = find_image_file(output_dir, display_profile_id, test_name, image_num=img_num)
+                                            if fp:
+                                                void_image_paths.append(fp)
+                                        
+                                        # Create a single-item batch with the list of void images
+                                        single_test = [(test_name, void_image_paths, row)]
+                                        
+                                        # Call the batch function (it will handle the void test)
+                                        result = batch_ai_rate_images(single_test, display_profile_id, existing_ratings=None)
+                                        
+                                        if result and 'ratings' in result and test_name in result['ratings']:
+                                            # Update the rating
+                                            analysis_data['ratings'][test_name] = result['ratings'][test_name]
+                                            save_analysis(display_profile_id, analysis_data)
+                                            st.success("✨ Rating generated!")
+                                            import time
+                                            time.sleep(0.5)
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ No rating returned from AI")
+                                    
+                                    except Exception as e:
+                                        st.error(f"❌ Error: {str(e)}")
                     
                     # Save button
                     if st.button(f"💾 Save Rating for {test_name}", key=f"save_{test_name}"):
@@ -1562,12 +1711,15 @@ elif st.session_state.page == 'rate':
                             "affinity": affinity,
                             "score": score,
                             "confidence": confidence,
+                            "rendering_style": rendering_style,
                             "commentary": commentary,
                             "color-palette": color_palette
                         }
                         analysis_data["ratings"] = ratings
                         save_analysis(display_profile_id, analysis_data)
                         st.success(f"✅ Saved rating for {test_name}")
+                        import time
+                        time.sleep(0.5)  # Brief pause to show success message
                         st.rerun()
                 
             else:
@@ -1583,10 +1735,26 @@ elif st.session_state.page == 'rate':
                 # Load existing rating if available
                 existing_rating = ratings.get(test_name, {})
                 
+                # Check if just AI rated (to keep expander open and show message)
+                just_ai_rated = st.session_state.get(f'just_ai_rated_{test_name}', False)
+                ai_message = st.session_state.get(f'ai_rated_message_{test_name}', None)
+                if just_ai_rated:
+                    # Clear the flags
+                    st.session_state[f'just_ai_rated_{test_name}'] = False
+                    if ai_message:
+                        st.session_state[f'ai_rated_message_{test_name}'] = None
+                    force_expanded = True
+                else:
+                    force_expanded = False
+                
+                # Show success message if present
+                if ai_message:
+                    st.success(ai_message)
+                
                 with st.expander(
                     f"{'✅' if is_rated else '⭐'} {test_name}" +
                     (f" - {existing_rating.get('affinity', '').replace('_', ' ').title()} ({existing_rating.get('score', 0)}/10)" if is_rated else ""),
-                    expanded=not is_rated
+                    expanded=(not is_rated) or force_expanded
                 ):
                     col_img, col_rate = st.columns([1, 1])
                     
@@ -1695,7 +1863,11 @@ elif st.session_state.page == 'rate':
                                                 # Update the rating
                                                 analysis_data['ratings'][test_name] = result['ratings'][test_name]
                                                 save_analysis(display_profile_id, analysis_data)
-                                                st.success("✨ Rating generated!")
+                                                # Set flag to keep expander open after AI rating
+                                                st.session_state[f'just_ai_rated_{test_name}'] = True
+                                                st.session_state[f'ai_rated_message_{test_name}'] = f"✨ AI rating completed for {test_name}"
+                                                import time
+                                                time.sleep(0.3)
                                                 st.rerun()
                                             else:
                                                 st.error("❌ No rating returned from AI")
@@ -1733,6 +1905,8 @@ elif st.session_state.page == 'rate':
                             get_storage().write_json(str(analysis_file), analysis_data)
                             
                             st.success(f"✅ Saved rating for {test_name}")
+                            import time
+                            time.sleep(0.5)  # Brief pause to show success message
                             st.rerun()
         
         # Download complete analysis
@@ -2385,7 +2559,7 @@ elif st.session_state.page == 'manage_tests':
         with col1:
             status_filter = st.selectbox("Status", ["current", "archived", "all"], key="view_status")
         with col2:
-            section_filter = st.selectbox("Section", ["ALL", "PHOTO", "ART"], key="view_section")
+            section_filter = st.selectbox("Section", ["ALL", "PHOTO", "ART", "VOID_PHOTO", "VOID_ART"], key="view_section")
         with col3:
             version_filter = st.selectbox("Version", ["ALL", "v1", "v2", "v3"], key="view_version")
         
@@ -2476,7 +2650,7 @@ elif st.session_state.page == 'manage_tests':
         
         with st.form("add_test_form"):
             new_title = st.text_input("Title", placeholder="Moody Foggy Forest")
-            new_section = st.selectbox("Section", ["PHOTO", "ART"])
+            new_section = st.selectbox("Section", ["PHOTO", "ART", "VOID_PHOTO", "VOID_ART"])
             new_prompt = st.text_area("Prompt", height=100, placeholder="A moody foggy forest at dawn...")
             new_params = st.text_input("Parameters", value="--ar 16:9 --stylize 1000", placeholder="--ar 16:9 --stylize 1000")
             new_version = st.selectbox("Version", ["v1", "v2", "v3"])
@@ -2518,7 +2692,10 @@ elif st.session_state.page == 'manage_tests':
             
             with st.form("edit_test_form"):
                 edit_title = st.text_input("Title", value=selected_test.get('title', ''))
-                edit_section = st.selectbox("Section", ["PHOTO", "ART"], index=0 if selected_test.get('section') == 'PHOTO' else 1)
+                sections = ["PHOTO", "ART", "VOID_PHOTO", "VOID_ART"]
+                current_section = selected_test.get('section', 'PHOTO')
+                section_index = sections.index(current_section) if current_section in sections else 0
+                edit_section = st.selectbox("Section", sections, index=section_index)
                 edit_prompt = st.text_area("Prompt", value=selected_test.get('prompt', ''), height=100)
                 edit_params = st.text_input("Parameters", value=selected_test.get('params', ''))
                 
