@@ -135,6 +135,15 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None):
         delete_key = f"delete_{idx}_{image_num}" if image_num else f"delete_{idx}"
         if st.button("🗑️", key=delete_key):
             existing_filepath.unlink()
+            
+            # Clear the analysis rating for this test
+            analysis_file = Path("profile_analyses") / f"{profile_id if profile_id else 'baseline'}_analysis.json"
+            analysis_data = get_storage().read_json(str(analysis_file))
+            if analysis_data and "ratings" in analysis_data:
+                if test_name in analysis_data["ratings"]:
+                    del analysis_data["ratings"][test_name]
+                    get_storage().write_json(str(analysis_file), analysis_data)
+            
             st.rerun(scope="fragment")
     else:
         # Paste button and file uploader
