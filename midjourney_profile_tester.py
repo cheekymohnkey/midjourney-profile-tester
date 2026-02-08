@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Streamlit app to generate MidJourney profile test prompts."""
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import requests
 from io import StringIO, BytesIO
@@ -530,7 +531,7 @@ def save_analysis(profile_id, analysis_data):
     analysis_file = Path("profile_analyses") / f"{profile_id}_analysis.json"
     get_storage().write_json(str(analysis_file), analysis_data)
 
-# Custom CSS to make code block copy button always visible
+# Custom CSS to make code block copy button always visible and highlight when copied
 st.markdown("""
 <style>
     /* Force copy button to always be visible - override all animations/transitions */
@@ -565,8 +566,56 @@ st.markdown("""
     /* Make sure the code container is positioned relatively */
     .stCode {
         position: relative !important;
+        transition: all 0.3s ease !important;
+    }
+    /* Highlight style when copied */
+    .stCode.copied {
+        background: linear-gradient(90deg, rgba(40, 167, 69, 0.2) 0%, rgba(40, 167, 69, 0.1) 100%) !important;
+        border-left: 4px solid #28a745 !important;
+        padding-left: 12px !important;
+    }
+    .stCode.copied code {
+        background: transparent !important;
     }
 </style>
+<script>
+    // Add click listener to all copy buttons
+    document.addEventListener('DOMContentLoaded', function() {
+        setupCopyListeners();
+    });
+    
+    // Re-setup listeners when Streamlit reruns
+    const observer = new MutationObserver(function(mutations) {
+        setupCopyListeners();
+    });
+    
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+    
+    function setupCopyListeners() {
+        const copyButtons = document.querySelectorAll('button[data-testid="stCodeCopyButton"]');
+        copyButtons.forEach(button => {
+            if (!button.dataset.listenerAdded) {
+                button.dataset.listenerAdded = 'true';
+                button.addEventListener('click', function() {
+                    // Find the parent code container
+                    const codeContainer = button.closest('.stCode');
+                    if (codeContainer) {
+                        // Add copied class
+                        codeContainer.classList.add('copied');
+                        
+                        // Optional: Remove after a delay (if you want temporary highlight)
+                        // setTimeout(() => {
+                        //     codeContainer.classList.remove('copied');
+                        // }, 3000);
+                    }
+                });
+            }
+        });
+    }
+</script>
 """, unsafe_allow_html=True)
 
 # Initialize session state
@@ -724,6 +773,10 @@ if st.session_state.page == 'prompts':
         
         st.success(f"✅ Loaded {len(df)} test prompts")
         
+        # Initialize session state for copied prompts
+        if 'copied_prompts' not in st.session_state:
+            st.session_state.copied_prompts = set()
+        
         # Display prompts by section
         sections = df['Section'].unique()
         
@@ -751,8 +804,30 @@ if st.session_state.page == 'prompts':
                 # Display test name as header
                 st.markdown(f"**{test_name}**")
                 
-                # Display prompt in code block with built-in copy button
-                st.code(full_prompt, language=None)
+                # Apply green highlight if copied
+                if test_name in st.session_state.copied_prompts:
+                    st.markdown(
+                        f'<div style="background: linear-gradient(90deg, rgba(40, 167, 69, 0.2) 0%, rgba(40, 167, 69, 0.1) 100%); '
+                        f'border-left: 4px solid #28a745; padding: 12px; border-radius: 4px; margin-bottom: 8px; font-family: monospace; '
+                        f'white-space: pre-wrap; word-break: break-all; overflow-x: auto;">{full_prompt}</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.code(full_prompt, language=None)
+                
+                # Copy button below the code block (mobile-friendly)
+                if st.button("📋 Copy", key=f"copy_{test_name}", help="Copy to clipboard", use_container_width=True):
+                    st.session_state.copied_prompts.add(test_name)
+                    # Use JavaScript to copy to clipboard
+                    components.html(
+                        f"""
+                        <script>
+                            navigator.clipboard.writeText(`{full_prompt.replace('`', '\\`')}`);
+                        </script>
+                        """,
+                        height=0
+                    )
+                    st.rerun()
                 
                 st.markdown("")  # Add spacing
         
