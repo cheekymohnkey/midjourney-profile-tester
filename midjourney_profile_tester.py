@@ -775,11 +775,12 @@ if st.session_state.page == 'prompts':
         st.markdown("### 📄 All Prompts (for bulk copying)")
         
         all_prompts = []
+        prompt_count = 0
         for idx, row in df.iterrows():
             section = row['Section']
             test_name = row['Title']
             base_prompt = row['Prompt']
-            params = row.get('Params', '--ar 16:9 --stylize 1000 --seed 20161027 --quality 4')
+            params = row['Parameter Values']
             
             # Skip empty/NaN rows
             if pd.isna(section) or pd.isna(test_name) or pd.isna(base_prompt):
@@ -791,6 +792,11 @@ if st.session_state.page == 'prompts':
             else:
                 full_prompt = f"{base_prompt} {params}"
             all_prompts.append(full_prompt)
+            prompt_count += 1
+            
+            # Add blank line after every 10 prompts
+            if prompt_count % 10 == 0:
+                all_prompts.append("")
         
         all_prompts_text = "\n".join(all_prompts)
         st.text_area(
