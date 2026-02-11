@@ -13,6 +13,7 @@ from st_img_pastebutton import paste
 import test_prompts_manager as tpm
 from dotenv import load_dotenv
 from storage import get_storage
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -21,6 +22,45 @@ load_dotenv()
 ANALYSIS_PROMPT_VERSION = "2.3-signature"  # v2.3: Enhanced commentary to capture profile's aesthetic signature (tone, color, texture) for better DNA and recommendations
 
 st.set_page_config(page_title="MidJourney Profile Tester", layout="wide")
+
+# Global parameters persistence file
+GLOBAL_PARAMS_FILE = Path("global_params.json")
+
+def load_global_params():
+    """Load global parameters from file, return default if not found."""
+    try:
+        if GLOBAL_PARAMS_FILE.exists():
+            with open(GLOBAL_PARAMS_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('global_params', '--ar 16:9 --quality 4 --seed 20161027')
+    except Exception:
+        pass
+    return '--ar 16:9 --quality 4 --seed 20161027'
+
+def save_global_params(params):
+    """Save global parameters to file."""
+    try:
+        with open(GLOBAL_PARAMS_FILE, 'w') as f:
+            json.dump({'global_params': params}, f)
+    except Exception:
+        pass
+
+def filter_seed_from_params(params_string):
+    """Remove --seed parameter from a parameter string."""
+    if not params_string:
+        return params_string
+    parts = params_string.split()
+    filtered_parts = []
+    skip_next = False
+    for i, part in enumerate(parts):
+        if skip_next:
+            skip_next = False
+            continue
+        if part == '--seed':
+            skip_next = True  # Skip the next part (the seed value)
+            continue
+        filtered_parts.append(part)
+    return ' '.join(filtered_parts)
 
 def optimize_image_for_storage(img, max_size=1024, quality=90):
     """
@@ -727,6 +767,31 @@ if st.session_state.page == 'prompts':
     else:
         st.markdown(f"### Testing Profile: **Baseline (no profile)**")
     
+    # Global parameters input
+    st.markdown("---")
+    st.markdown("### ⚙️ Global Parameters")
+    st.caption("Add common parameters that will be applied to all prompts (e.g., --ar 16:9 --quality 4 --seed 20161027)")
+    
+    if 'global_params' not in st.session_state:
+        st.session_state.global_params = load_global_params()
+    
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        global_params = st.text_input(
+            "Parameters to add to all prompts",
+            value=st.session_state.global_params,
+            placeholder="e.g., --ar 16:9 --quality 4 --seed 20161027",
+            help="These parameters will be added to every prompt below"
+        )
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)  # Spacing to align button
+        if st.button("Apply"):
+            st.session_state.global_params = global_params
+            save_global_params(global_params)
+            st.rerun()
+    
+    st.markdown("---")
+    
     try:
         # Load tests from JSON
         with st.spinner("Loading test prompts..."):
@@ -755,12 +820,21 @@ if st.session_state.page == 'prompts':
                 test_name = row['Title']
                 base_prompt = row['Prompt']
                 params = row['Parameter Values']
+                section = row['Section']
                 
-                # Build full prompt (only add --p if profile_id is not empty)
+                # Build full prompt with global params
+                prompt_parts = [base_prompt, params]
+                if st.session_state.global_params.strip():
+                    global_params_to_add = st.session_state.global_params.strip()
+                    # For VOID tests, remove --seed parameter
+                    if str(section).startswith('VOID'):
+                        global_params_to_add = filter_seed_from_params(global_params_to_add)
+                    if global_params_to_add:
+                        prompt_parts.append(global_params_to_add)
                 if profile_id:
-                    full_prompt = f"{base_prompt} {params} --p {profile_id}"
-                else:
-                    full_prompt = f"{base_prompt} {params}"
+                    prompt_parts.append(f"--p {profile_id}")
+                
+                full_prompt = " ".join(part for part in prompt_parts if part)
                 
                 # Display test name as header
                 st.markdown(f"**{test_name}**")
@@ -786,11 +860,19 @@ if st.session_state.page == 'prompts':
             if pd.isna(section) or pd.isna(test_name) or pd.isna(base_prompt):
                 continue
             
-            # Build full prompt (only add --p if profile_id is not empty)
+            # Build full prompt with global params
+            prompt_parts = [base_prompt, params]
+            if st.session_state.global_params.strip():
+                global_params_to_add = st.session_state.global_params.strip()
+                # For VOID tests, remove --seed parameter
+                if str(section).startswith('VOID'):
+                    global_params_to_add = filter_seed_from_params(global_params_to_add)
+                if global_params_to_add:
+                    prompt_parts.append(global_params_to_add)
             if profile_id:
-                full_prompt = f"{base_prompt} {params} --p {profile_id}"
-            else:
-                full_prompt = f"{base_prompt} {params}"
+                prompt_parts.append(f"--p {profile_id}")
+            
+            full_prompt = " ".join(part for part in prompt_parts if part)
             all_prompts.append(full_prompt)
             prompt_count += 1
             
