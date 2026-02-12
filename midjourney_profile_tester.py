@@ -2784,6 +2784,72 @@ elif st.session_state.page == 'manage_tests':
                 else:
                     st.info("No profile ratings found for this test")
                 
+                # Add section to view all images for this test
+                st.markdown("---")
+                st.markdown("#### 🖼️ Test Images Across Profiles")
+                with st.expander("Show images from all profiles", expanded=False):
+                    # Only load images when expanded
+                    storage = get_storage()
+                    
+                    # Get test title for filename
+                    test_title = test.get('title', '')
+                    if test_title:
+                        images_found = []
+                        
+                        # Convert test title to filename format (spaces to underscores)
+                        test_title_filename = test_title.replace(' ', '_')
+                        
+                        # Try to list all jpg files and filter
+                        try:
+                            # Get all image files in profile_results
+                            jpg_files = storage.list_files("profile_results", "*.jpg")
+                            png_files = storage.list_files("profile_results", "*.png")
+                            all_image_files = jpg_files + png_files
+                            
+                            # Filter for this test
+                            for file_path in all_image_files:
+                                # Extract parts from path: profile_results/profile_id/profile_id_test_name.jpg
+                                parts = file_path.split('/')
+                                if len(parts) >= 3:
+                                    profile_id = parts[1]
+                                    filename = parts[2]
+                                    # Remove extension
+                                    filename_no_ext = filename.rsplit('.', 1)[0]
+                                    
+                                    # Remove profile_id prefix if present (format: profile_id_test_name)
+                                    if filename_no_ext.startswith(f"{profile_id}_"):
+                                        test_name = filename_no_ext[len(profile_id)+1:]  # +1 for underscore
+                                        
+                                        if test_name == test_title_filename:
+                                            images_found.append((profile_id, file_path))
+                        except Exception as e:
+                            st.error(f"Error listing files: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
+                        
+                        if images_found:
+                            # Sort by profile_id
+                            images_found.sort(key=lambda x: x[0])
+                            # Display images in a grid with profile labels
+                            cols_per_row = 3
+                            for i in range(0, len(images_found), cols_per_row):
+                                cols = st.columns(cols_per_row)
+                                for j, col in enumerate(cols):
+                                    idx = i + j
+                                    if idx < len(images_found):
+                                        profile_id, img_path = images_found[idx]
+                                        with col:
+                                            st.markdown(f"**{profile_id}**")
+                                            try:
+                                                img = load_image(img_path)
+                                                st.image(img, use_container_width=True)
+                                            except Exception as e:
+                                                st.error(f"Failed to load image: {e}")
+                        else:
+                            st.info("No images found for this test across any profiles")
+                    else:
+                        st.warning("Test title missing")
+                
                 # Add button to run analysis for all profiles for this test
                 st.markdown("---")
                 test_id_for_button = test.get('id', '')
