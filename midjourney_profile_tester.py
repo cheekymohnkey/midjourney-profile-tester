@@ -14,6 +14,7 @@ import test_prompts_manager as tpm
 from dotenv import load_dotenv
 from storage import get_storage
 import json
+from streamlit_sortables import sort_items
 
 # Load environment variables from .env file
 load_dotenv()
@@ -1595,15 +1596,34 @@ elif st.session_state.page == 'rate':
                 st.rerun()
     
     if dna_list:
-        st.markdown("**Current DNA traits:**")
-        for idx, trait in enumerate(dna_list):
+        st.markdown("**Current DNA traits (drag to reorder):**")
+        
+        # Use streamlit-sortables for drag and drop reordering
+        sorted_items = sort_items(
+            items=dna_list,
+            key="dna_sort"
+        )
+        
+        # Check if order has changed
+        if sorted_items and sorted_items != dna_list:
+            # Save the new order
+            analysis_data["profile_dna"] = sorted_items
+            get_storage().write_json(str(analysis_file), analysis_data)
+            st.rerun()
+        
+        # Show delete buttons for each trait
+        st.markdown("---")
+        st.markdown("**Delete traits:**")
+        current_list = sorted_items if sorted_items else dna_list
+        for idx, trait in enumerate(current_list):
             col1, col2 = st.columns([5, 1])
             with col1:
-                st.markdown(f"- {trait}")
+                st.markdown(f"{idx + 1}. {trait}")
             with col2:
                 if st.button("🗑️", key=f"del_dna_{idx}"):
-                    dna_list.pop(idx)
-                    analysis_data["profile_dna"] = dna_list
+                    current_list = list(current_list)
+                    current_list.pop(idx)
+                    analysis_data["profile_dna"] = current_list
                     get_storage().write_json(str(analysis_file), analysis_data)
                     st.rerun()
     
@@ -2747,7 +2767,15 @@ elif st.session_state.page == 'manage_tests':
                     all_profiles_text = []
                     for rating in profile_ratings:
                         affinity_emoji = {'native_fit': '✅', 'workable': '⚠️', 'resistant': '❌'}.get(rating['affinity'], '❓')
-                        profile_text = f"{affinity_emoji} {rating['profile_id']} - \"{rating['label']}\" | Score: {rating['score']}/10 | Affinity: {rating['affinity']} | Confidence: {rating['confidence']:.0%}\n\n{rating['commentary']}\n"
+                        
+                        # Handle confidence - convert to float or use as-is if it's a string like "Medium"
+                        confidence = rating.get('confidence', 0.0)
+                        try:
+                            confidence_display = f"{float(confidence):.0%}"
+                        except (ValueError, TypeError):
+                            confidence_display = str(confidence)
+                        
+                        profile_text = f"{affinity_emoji} {rating['profile_id']} - \"{rating['label']}\" | Score: {rating['score']}/10 | Affinity: {rating['affinity']} | Confidence: {confidence_display}\n\n{rating['commentary']}\n"
                         all_profiles_text.append(profile_text)
                     
                     # Display in single text area
