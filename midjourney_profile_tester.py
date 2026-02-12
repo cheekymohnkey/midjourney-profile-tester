@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from storage import get_storage
 import json
 from streamlit_sortables import sort_items
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Load environment variables from .env file
 load_dotenv()
@@ -102,6 +103,8 @@ def find_image_file(output_dir, profile_id, test_name, image_num=None):
     Find an image file, checking both .jpg and .png extensions.
     Returns Path object if found, None otherwise.
     
+    Uses cached file listing to avoid individual S3 HEAD requests.
+    
     Args:
         output_dir: Directory containing images
         profile_id: Profile ID (or 'baseline')
@@ -112,7 +115,6 @@ def find_image_file(output_dir, profile_id, test_name, image_num=None):
         Path object if file exists, None otherwise
     """
     safe_name = test_name.replace(' ', '_').replace('/', '_')
-    storage = get_storage()
     
     # Build filename with optional image number
     if image_num:
@@ -120,17 +122,102 @@ def find_image_file(output_dir, profile_id, test_name, image_num=None):
     else:
         base_name = f"{profile_id}_{safe_name}"
     
+    # Get cached list of filenames for this profile
+    existing_files = get_profile_image_files(profile_id)
+    
     # Check .jpg first (new format)
-    jpg_path = output_dir / f"{base_name}.jpg"
-    if storage.exists(str(jpg_path)):
-        return jpg_path
+    jpg_filename = f"{base_name}.jpg"
+    if jpg_filename in existing_files:
+        return output_dir / jpg_filename
     
     # Fall back to .png (legacy format)
-    png_path = output_dir / f"{base_name}.png"
-    if storage.exists(str(png_path)):
-        return png_path
+    png_filename = f"{base_name}.png"
+    if png_filename in existing_files:
+        return output_dir / png_filename
     
     return None
+
+@st.cache_data(ttl=60, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
+def get_all_profile_analyses():
+    """Load all profile analyses once and cache for 60 seconds."""
+    storage = get_storage()
+    analysis_files = storage.list_files("profile_analyses", "*_analysis.json")
+    analyses = {}
+    for file_path in analysis_files:
+        try:
+            data = storage.read_json(file_path)
+            file_name = file_path.split('/')[-1]
+            profile_id = data.get('profile_id', file_name.replace('_analysis.json', ''))
+            analyses[profile_id] = data
+        except Exception:
+            pass
+    return analyses
+
+@st.cache_data(ttl=30, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
+def count_profile_images(profile_id):
+    """Count images in a profile directory with caching."""
+    storage = get_storage()
+    output_path = f"profile_results/{profile_id if profile_id else 'baseline'}"
+    jpg_files = storage.list_files(output_path, "*.jpg")
+    png_files = storage.list_files(output_path, "*.png")
+    return len(jpg_files) + len(png_files)
+
+@st.cache_data(ttl=30, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
+def get_profile_image_files(profile_id):
+    """Get set of all image filenames in a profile directory (cached)."""
+    storage = get_storage()
+    output_path = f"profile_results/{profile_id if profile_id else 'baseline'}"
+    jpg_files = storage.list_files(output_path, "*.jpg")
+    png_files = storage.list_files(output_path, "*.png")
+    # Extract just the filenames (not full paths) into a set for fast lookup
+    filenames = set()
+    for file_path in jpg_files + png_files:
+        filename = file_path.split('/')[-1]
+        filenames.add(filename)
+    return filenames
+
+@st.cache_data(ttl=60, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
+def get_existing_profile_ids():
+    """Get list of profile IDs with caching to avoid expensive list operations."""
+    storage = get_storage()
+    all_files = storage.list_files("profile_results", "*")
+    # Extract unique directory names (profile IDs)
+    profile_dirs = set()
+    for file_path in all_files:
+        # file_path is like "profile_results/profile_id/filename"
+        parts = file_path.split('/')
+        if len(parts) >= 2 and parts[1] != 'baseline':
+            profile_dirs.add(parts[1])
+    return sorted(list(profile_dirs))
+
+@st.cache_data(ttl=60, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
+def get_profile_completion_data(profile_list, test_names_tuple, test_count):
+    """Cache profile completion status to avoid repeated JSON reads."""
+    profile_analyses_dir = Path("profile_analyses")
+    versions = {}
+    completion = {}
+    for profile in profile_list:
+        analysis_file = profile_analyses_dir / f"{profile}_analysis.json"
+        try:
+            # Try to read from storage (works for both local and S3)
+            data = get_storage().read_json(str(analysis_file))
+            version = data.get('analysis_version', 'unknown')
+            versions[profile] = version
+            # Check completion - only count ratings for current tests
+            ratings = data.get('ratings', {})
+            test_names_set = set(test_names_tuple)
+            valid_ratings = [t for t in ratings.keys() if t in test_names_set]
+            completion[profile] = (len(valid_ratings) == test_count)
+        except:
+            # File doesn't exist or can't be read
+            versions[profile] = 'unknown'
+            completion[profile] = False
+    return versions, completion
+
+@st.cache_data(ttl=300, max_entries=100)
+def load_image_cached(image_path_str):
+    """Load and cache image for 5 minutes. Limits to 100 images in cache."""
+    return load_image(image_path_str)
 
 # Helper function to load tests as DataFrame
 def load_tests_df(status_filter='current'):
@@ -147,9 +234,8 @@ def load_tests_df(status_filter='current'):
     })
     return df[['Section', 'Title', 'Prompt', 'Parameter Values']]
 
-@st.fragment
 def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None):
-    """Fragment to handle individual test image upload without full page rerun.
+    """Handle individual test image upload.
     
     Args:
         image_num: For multi-image tests, the image number (1-8). None for single-image tests.
@@ -171,9 +257,9 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None):
     # Check if image exists (handles both .jpg and .png)
     existing_filepath = find_image_file(output_dir, profile_id if profile_id else 'baseline', test_name, image_num)
     if existing_filepath:
-        # Load image from storage for display
-        img_display = load_image(existing_filepath)
-        st.image(img_display, use_container_width=True)
+        # Load image from storage for display (cached)
+        img_display = load_image_cached(str(existing_filepath))
+        st.image(img_display, width='stretch')
         delete_key = f"delete_{idx}_{image_num}" if image_num else f"delete_{idx}"
         if st.button("🗑️", key=delete_key):
             existing_filepath.unlink()
@@ -186,7 +272,11 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None):
                     del analysis_data["ratings"][test_name]
                     get_storage().write_json(str(analysis_file), analysis_data)
             
-            st.rerun(scope="fragment")
+            # Clear cache so deleted image no longer shows
+            get_profile_image_files.clear()
+            count_profile_images.clear()
+            load_image_cached.clear()
+            st.rerun()
     else:
         # Paste button and file uploader
         paste_col, upload_col = st.columns([1, 1])
@@ -210,8 +300,12 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None):
                 img = optimize_image_for_storage(img)
                 filepath = filepath.with_suffix('.jpg')
                 save_image(filepath, img, format='JPEG', quality=90)
+                # Clear cache so new image is detected
+                get_profile_image_files.clear()
+                count_profile_images.clear()
+                load_image_cached.clear()
                 st.success("✅ Pasted!")
-                st.rerun(scope="fragment")
+                st.rerun()
         
         with upload_col:
             uploaded = st.file_uploader(
@@ -228,8 +322,12 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None):
                 img = optimize_image_for_storage(img)
                 filepath = filepath.with_suffix('.jpg')
                 save_image(filepath, img, format='JPEG', quality=90)
+                # Clear cache so new image is detected
+                get_profile_image_files.clear()
+                count_profile_images.clear()
+                load_image_cached.clear()
                 st.success("✅ Saved!")
-                st.rerun(scope="fragment")
+                st.rerun()
 
 def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_ratings=None):
     """
@@ -661,45 +759,19 @@ if not st.session_state.fullscreen:
     # Input for profile ID (optional - empty = baseline)
     # Check for existing profiles
     profile_results_dir = Path("profile_results")
-    existing_profiles = []
-    storage = get_storage()
-    
-    # List directories in profile_results
-    all_files = storage.list_files("profile_results", "*")
-    # Extract unique directory names (profile IDs)
-    profile_dirs = set()
-    for file_path in all_files:
-        # file_path is like "profile_results/profile_id/filename"
-        parts = file_path.split('/')
-        if len(parts) >= 2 and parts[1] != 'baseline':
-            profile_dirs.add(parts[1])
-    existing_profiles = sorted(list(profile_dirs))
+    existing_profiles = get_existing_profile_ids()
     
     # Check analysis versions for existing profiles
-    profile_versions = {}
-    profile_completion = {}
-    profile_analyses_dir = Path("profile_analyses")
-    
     # Get total test count and test names
     current_tests = tpm.load_tests(status_filter='current')
     total_tests = len(current_tests)
     current_test_names = set(t.get('title', '') for t in current_tests)
     
-    for profile in existing_profiles:
-        analysis_file = profile_analyses_dir / f"{profile}_analysis.json"
-        try:
-            # Try to read from storage (works for both local and S3)
-            data = get_storage().read_json(str(analysis_file))
-            version = data.get('analysis_version', 'unknown')
-            profile_versions[profile] = version
-            # Check completion - only count ratings for current tests
-            ratings = data.get('ratings', {})
-            valid_ratings = [t for t in ratings.keys() if t in current_test_names]
-            profile_completion[profile] = (len(valid_ratings) == total_tests)
-        except:
-            # File doesn't exist or can't be read
-            profile_versions[profile] = 'unknown'
-            profile_completion[profile] = False
+    profile_versions, profile_completion = get_profile_completion_data(
+        tuple(existing_profiles), 
+        tuple(current_test_names),
+        total_tests
+    )
     
     # Add option to select from existing profiles or enter new
     col_a, col_b = st.columns([1, 1])
@@ -902,9 +974,18 @@ elif st.session_state.page == 'images' and proceed:
     if not st.session_state.fullscreen:
         st.markdown(f"### 🖼️ Image Grid for: **{profile_display}**")
         
-        # Add fullscreen toggle
-        col1, col2 = st.columns([6, 1])
+        # Add fullscreen toggle and cache refresh button
+        col1, col2, col3 = st.columns([5, 1, 1])
         with col2:
+            if st.button("🔄 Refresh", help="Clear cache and reload images"):
+                # Clear all performance caches
+                get_profile_image_files.clear()
+                count_profile_images.clear()
+                get_existing_profile_ids.clear()
+                get_profile_completion_data.clear()
+                load_image_cached.clear()
+                st.rerun()
+        with col3:
             fullscreen = st.toggle("🖥️ Fullscreen", value=st.session_state.fullscreen)
             if fullscreen != st.session_state.fullscreen:
                 st.session_state.fullscreen = fullscreen
@@ -928,8 +1009,19 @@ elif st.session_state.page == 'images' and proceed:
             st.warning("⚠️ No test prompts found")
             st.stop()
         
+        # Debug panel at the very top
+        import time
+        st.markdown("### 🐛 Debug Info")
+        debug_container = st.empty()
+        start_time = time.time()
+        debug_log = []
+        debug_log.append(f"[{time.time() - start_time:.2f}s] Page load started")
+        debug_container.code("\n".join(debug_log))
+        
         # Group by section
         sections = df['Section'].unique()
+        debug_log.append(f"[{time.time() - start_time:.2f}s] Found {len(sections)} sections with {len(df)} tests")
+        debug_container.code("\n".join(debug_log))
         
         if fullscreen:
             # Marker FIRST - everything before this will be hidden
@@ -1051,14 +1143,72 @@ elif st.session_state.page == 'images' and proceed:
                     if img_idx < len(all_images):
                         test_name, filepath = all_images[img_idx]
                         with col:
-                            img_display = load_image(filepath)
-                            st.image(img_display, caption=test_name, use_container_width=True)
+                            img_display = load_image_cached(str(filepath))
+                            st.image(img_display, caption=test_name, width='stretch')
             
             if len(all_images) < len(df):
                 st.warning(f"⚠️ Showing {len(all_images)}/{len(df)} images. Upload missing images to see complete set.")
         
         else:
             # Normal mode - show upload UI with fragments to prevent full page reloads
+            
+            debug_log.append(f"[{time.time() - start_time:.2f}s] Normal mode - starting image preload")
+            debug_container.code("\n".join(debug_log))
+            
+            # Pre-warm file list cache to prevent each fragment from triggering S3 calls
+            profile_key = profile_id if profile_id else 'baseline'
+            debug_log.append(f"[{time.time() - start_time:.2f}s] Getting file list for profile: {profile_key}")
+            debug_container.code("\n".join(debug_log))
+            
+            _ = get_profile_image_files(profile_key)
+            debug_log.append(f"[{time.time() - start_time:.2f}s] File list loaded")
+            debug_container.code("\n".join(debug_log))
+            
+            # Pre-load ALL images in parallel for instant rendering
+            debug_log.append(f"[{time.time() - start_time:.2f}s] Collecting image paths...")
+            debug_container.code("\n".join(debug_log))
+            
+            images_to_load = []
+            
+            # Collect all image paths that exist
+            for section in sections:
+                section_tests = df[df['Section'] == section]
+                for idx, row in section_tests.iterrows():
+                    test_name = row['Title']
+                    # Check for VOID tests that need multiple images
+                    if test_name in ["Null Prompt (Photo)", "Null Prompt (Art)"]:
+                        for img_num in range(1, 9):
+                            filepath = find_image_file(output_dir, profile_key, test_name, img_num)
+                            if filepath:
+                                images_to_load.append(str(filepath))
+                    else:
+                        filepath = find_image_file(output_dir, profile_key, test_name)
+                        if filepath:
+                            images_to_load.append(str(filepath))
+            
+            debug_log.append(f"[{time.time() - start_time:.2f}s] Found {len(images_to_load)} images to load")
+            debug_container.code("\n".join(debug_log))
+            
+            # Load all images in parallel (max 10 concurrent requests)
+            debug_log.append(f"[{time.time() - start_time:.2f}s] Starting parallel image load...")
+            debug_container.code("\n".join(debug_log))
+            
+            def load_single_image(path):
+                img_start = time.time()
+                result = load_image_cached(path)
+                return path, time.time() - img_start
+            
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(load_single_image, path) for path in images_to_load]
+                for i, future in enumerate(as_completed(futures)):
+                    path, duration = future.result()
+                    debug_log.append(f"[{time.time() - start_time:.2f}s] Loaded image {i+1}/{len(images_to_load)} in {duration:.3f}s")
+                    if i % 5 == 0:  # Update every 5 images to avoid too many updates
+                        debug_container.code("\n".join(debug_log[-10:]))  # Show last 10 lines
+            
+            debug_log.append(f"[{time.time() - start_time:.2f}s] All images loaded! Rendering page...")
+            debug_container.code("\n".join(debug_log[-15:]))
+            
             for section in sections:
                 section_tests = df[df['Section'] == section]
                 st.markdown(f"### {section}")
@@ -1103,8 +1253,8 @@ elif st.session_state.page == 'images' and proceed:
         # Show completion status (only in normal mode)
         if not fullscreen:
             total_tests = len(df)
-            # Count both .jpg (new) and .png (legacy) images
-            saved_images = len(list(output_dir.glob("*.jpg"))) + len(list(output_dir.glob("*.png")))
+            # Use cached count to avoid expensive S3 operations
+            saved_images = count_profile_images(profile_id if profile_id else 'baseline')
             st.info(f"📊 Progress: {saved_images}/{total_tests} images uploaded")
         
     except Exception as e:
@@ -1687,8 +1837,8 @@ elif st.session_state.page == 'rate':
                             if i + j < len(image_files):
                                 img_num, filepath = image_files[i + j]
                                 with col:
-                                    img_display = load_image(filepath)
-                                    st.image(img_display, caption=f"#{img_num}", use_container_width=True)
+                                    img_display = load_image_cached(str(filepath))
+                                    st.image(img_display, caption=f"#{img_num}", width='stretch')
                     
                     st.markdown("---")
                     st.info("💡 Rate based on **commonalities across all images**: What visual patterns, color palettes, lighting, or textures consistently emerge?")
@@ -1890,8 +2040,8 @@ elif st.session_state.page == 'rate':
                     col_img, col_rate = st.columns([1, 1])
                     
                     with col_img:
-                        img_display = load_image(filepath)
-                        st.image(img_display, use_container_width=True)
+                        img_display = load_image_cached(str(filepath))
+                        st.image(img_display, width='stretch')
                         st.caption(f"**Prompt:** {row['Prompt']}")
                         st.info("💡 Judge **style resemblance** (not content accuracy): Does it match the requested visual style, lighting, palette, and atmosphere?")
                     
@@ -2095,7 +2245,7 @@ elif st.session_state.page == 'assess':
     
     if image_source is not None:
         # Display the image
-        st.image(image_source, caption="Image to Analyze", use_container_width=True)
+        st.image(image_source, caption="Image to Analyze", width='stretch')
         
         # Auto-analyze on upload by checking if this image has been processed
         import hashlib
@@ -2673,12 +2823,36 @@ elif st.session_state.page == 'recommend':
         """)
 
 elif st.session_state.page == 'manage_tests':
+    import time
+    st.markdown("### 🐛 Debug Info (Tests Page)")
+    debug_container = st.empty()
+    start_time = time.time()
+    debug_log = []
+    debug_log.append(f"[{time.time() - start_time:.2f}s] Tests page load started")
+    debug_container.code("\n".join(debug_log))
+
     st.title("🛠️ Manage Test Prompts")
     st.markdown("Add, edit, archive, and version control your test prompts.")
     
     # Load current tests
     tests = tpm.load_tests()
+    debug_log.append(f"[{time.time() - start_time:.2f}s] Loaded {len(tests)} tests from tpm.load_tests()")
+    debug_container.code("\n".join(debug_log))
     
+    # Cache all image files (jpg and png) once for this page load
+    storage = get_storage()
+    debug_log.append(f"[{time.time() - start_time:.2f}s] Listing all image files (jpg/png) once for all tests...")
+    debug_container.code("\n".join(debug_log[-10:]))
+    try:
+        all_jpg_files = storage.list_files("profile_results", "*.jpg")
+        all_png_files = storage.list_files("profile_results", "*.png")
+        all_image_files_for_tests = all_jpg_files + all_png_files
+        debug_log.append(f"[{time.time() - start_time:.2f}s] Found {len(all_image_files_for_tests)} total image files.")
+    except Exception as e:
+        all_image_files_for_tests = []
+        debug_log.append(f"[{time.time() - start_time:.2f}s] Error listing image files: {e}")
+    debug_container.code("\n".join(debug_log[-10:]))
+
     # Tabs for different operations
     test_tabs = st.tabs(["📋 View Tests", "➕ Add Test", "✏️ Edit Test", "📦 Archive", "📥 Import/Export"])
     
@@ -2707,130 +2881,84 @@ elif st.session_state.page == 'manage_tests':
         
         # Display tests
         for test in display_tests:
+            debug_log.append(f"[{time.time() - start_time:.2f}s] Rendering expander for test: {test.get('title', 'Untitled')}")
+            debug_container.code("\n".join(debug_log[-10:]))
             with st.expander(f"{test.get('section', 'N/A')} | {test.get('title', 'Untitled')} ({test.get('version', 'v1')})"):
                 st.markdown(f"**ID:** `{test.get('id', 'N/A')}`")
                 st.markdown(f"**Status:** {test.get('status', 'current')}")
                 st.markdown(f"**Prompt:** {test.get('prompt', 'N/A')}")
                 st.markdown(f"**Parameters:** `{test.get('params', 'N/A')}`")
                 st.markdown(f"**Created:** {test.get('created_date', 'N/A')}")
-                
+
                 # Show profile analysis for this test
                 st.markdown("---")
-                st.markdown("#### 📊 Profile Analyses")
-                
-                # Load all profile analyses
-                import json
-                profile_analyses_dir = Path("profile_analyses")
-                test_title = test.get('title', '')
-                
-                storage = get_storage()
-                analysis_files = storage.list_files("profile_analyses", "*_analysis.json")
-                
-                profile_ratings = []
-                for file_path in analysis_files:
-                    try:
-                        data = storage.read_json(file_path)
-                        file_name = file_path.split('/')[-1]
-                        profile_id = data.get('profile_id', file_name.replace('_analysis.json', ''))
-                        profile_label = data.get('profile_label', 'No label')
-                        ratings = data.get('ratings', {})
-                        
-                        # Find rating for this test
-                        if test_title in ratings:
-                            rating_data = ratings[test_title]
-                            profile_ratings.append({
-                                'profile_id': profile_id,
-                                'label': profile_label,
-                                'affinity': rating_data.get('affinity', 'unknown'),
-                                'score': rating_data.get('score', 0),
-                                'confidence': rating_data.get('confidence', 0),
-                                'commentary': rating_data.get('commentary', 'No commentary')
-                            })
-                    except Exception as e:
-                        pass
-                
-                if profile_ratings:
-                    # Sort by score descending
-                    profile_ratings.sort(key=lambda x: x['score'], reverse=True)
-                    
-                    # Summary stats
-                    affinity_counts = {
-                        'native_fit': sum(1 for r in profile_ratings if r['affinity'] == 'native_fit'),
-                        'workable': sum(1 for r in profile_ratings if r['affinity'] == 'workable'),
-                        'resistant': sum(1 for r in profile_ratings if r['affinity'] == 'resistant')
-                    }
-                    avg_score = sum(r['score'] for r in profile_ratings) / len(profile_ratings) if profile_ratings else 0
-                    
-                    st.markdown(f"**Summary:** {len(profile_ratings)} profiles rated | Avg: {avg_score:.1f}/10 | ✅ {affinity_counts['native_fit']} native | ⚠️ {affinity_counts['workable']} workable | ❌ {affinity_counts['resistant']} resistant")
-                    
-                    # Build single text with all profiles
-                    all_profiles_text = []
-                    for rating in profile_ratings:
-                        affinity_emoji = {'native_fit': '✅', 'workable': '⚠️', 'resistant': '❌'}.get(rating['affinity'], '❓')
-                        
-                        # Handle confidence - convert to float or use as-is if it's a string like "Medium"
-                        confidence = rating.get('confidence', 0.0)
+                debug_log.append(f"[{time.time() - start_time:.2f}s]   Entering Profile Analyses expander for test: {test.get('title', 'Untitled')}")
+                debug_container.code("\n".join(debug_log[-10:]))
+                with st.expander("📊 Profile Analyses", expanded=False):
+                    test_title = test.get('title', '')
+                    all_analyses = get_all_profile_analyses()
+                    profile_ratings = []
+                    for profile_id, data in all_analyses.items():
                         try:
-                            confidence_display = f"{float(confidence):.0%}"
-                        except (ValueError, TypeError):
-                            confidence_display = str(confidence)
-                        
-                        profile_text = f"{affinity_emoji} {rating['profile_id']} - \"{rating['label']}\" | Score: {rating['score']}/10 | Affinity: {rating['affinity']} | Confidence: {confidence_display}\n\n{rating['commentary']}\n"
-                        all_profiles_text.append(profile_text)
-                    
-                    # Display in single text area
-                    combined_text = "\n" + "="*80 + "\n\n".join(all_profiles_text)
-                    st.text_area("All Profile Analyses", combined_text, height=400, key=f"analysis_{test.get('id', '')}")
-                else:
-                    st.info("No profile ratings found for this test")
-                
-                # Add section to view all images for this test
+                            profile_label = data.get('profile_label', 'No label')
+                            ratings = data.get('ratings', {})
+                            if test_title in ratings:
+                                rating_data = ratings[test_title]
+                                profile_ratings.append({
+                                    'profile_id': profile_id,
+                                    'label': profile_label,
+                                    'affinity': rating_data.get('affinity', 'unknown'),
+                                    'score': rating_data.get('score', 0),
+                                    'confidence': rating_data.get('confidence', 0),
+                                    'commentary': rating_data.get('commentary', 'No commentary')
+                                })
+                        except Exception:
+                            pass
+                    if profile_ratings:
+                        profile_ratings.sort(key=lambda x: x['score'], reverse=True)
+                        affinity_counts = {
+                            'native_fit': sum(1 for r in profile_ratings if r['affinity'] == 'native_fit'),
+                            'workable': sum(1 for r in profile_ratings if r['affinity'] == 'workable'),
+                            'resistant': sum(1 for r in profile_ratings if r['affinity'] == 'resistant')
+                        }
+                        avg_score = sum(r['score'] for r in profile_ratings) / len(profile_ratings) if profile_ratings else 0
+                        st.markdown(f"**Summary:** {len(profile_ratings)} profiles rated | Avg: {avg_score:.1f}/10 | ✅ {affinity_counts['native_fit']} native | ⚠️ {affinity_counts['workable']} workable | ❌ {affinity_counts['resistant']} resistant")
+                        all_profiles_text = []
+                        for rating in profile_ratings:
+                            affinity_emoji = {'native_fit': '✅', 'workable': '⚠️', 'resistant': '❌'}.get(rating['affinity'], '❓')
+                            confidence = rating.get('confidence', 0.0)
+                            try:
+                                confidence_display = f"{float(confidence):.0%}"
+                            except (ValueError, TypeError):
+                                confidence_display = str(confidence)
+                            profile_text = f"{affinity_emoji} {rating['profile_id']} - \"{rating['label']}\" | Score: {rating['score']}/10 | Affinity: {rating['affinity']} | Confidence: {confidence_display}\n\n{rating['commentary']}\n"
+                            all_profiles_text.append(profile_text)
+                        combined_text = "\n" + "="*80 + "\n\n".join(all_profiles_text)
+                        st.text_area("All Profile Analyses", combined_text, height=400, key=f"analysis_{test.get('id', '')}")
+                    else:
+                        st.info("No profile ratings found for this test")
+
                 st.markdown("---")
                 st.markdown("#### 🖼️ Test Images Across Profiles")
+                debug_log.append(f"[{time.time() - start_time:.2f}s]   Entering Images expander for test: {test.get('title', 'Untitled')}")
+                debug_container.code("\n".join(debug_log[-10:]))
                 with st.expander("Show images from all profiles", expanded=False):
-                    # Only load images when expanded
-                    storage = get_storage()
-                    
-                    # Get test title for filename
                     test_title = test.get('title', '')
                     if test_title:
                         images_found = []
-                        
-                        # Convert test title to filename format (spaces to underscores)
                         test_title_filename = test_title.replace(' ', '_')
-                        
-                        # Try to list all jpg files and filter
-                        try:
-                            # Get all image files in profile_results
-                            jpg_files = storage.list_files("profile_results", "*.jpg")
-                            png_files = storage.list_files("profile_results", "*.png")
-                            all_image_files = jpg_files + png_files
-                            
-                            # Filter for this test
-                            for file_path in all_image_files:
-                                # Extract parts from path: profile_results/profile_id/profile_id_test_name.jpg
-                                parts = file_path.split('/')
-                                if len(parts) >= 3:
-                                    profile_id = parts[1]
-                                    filename = parts[2]
-                                    # Remove extension
-                                    filename_no_ext = filename.rsplit('.', 1)[0]
-                                    
-                                    # Remove profile_id prefix if present (format: profile_id_test_name)
-                                    if filename_no_ext.startswith(f"{profile_id}_"):
-                                        test_name = filename_no_ext[len(profile_id)+1:]  # +1 for underscore
-                                        
-                                        if test_name == test_title_filename:
-                                            images_found.append((profile_id, file_path))
-                        except Exception as e:
-                            st.error(f"Error listing files: {e}")
-                            import traceback
-                            st.code(traceback.format_exc())
-                        
+                        for file_path in all_image_files_for_tests:
+                            parts = file_path.split('/')
+                            if len(parts) >= 3:
+                                profile_id = parts[1]
+                                filename = parts[2]
+                                filename_no_ext = filename.rsplit('.', 1)[0]
+                                if filename_no_ext.startswith(f"{profile_id}_"):
+                                    test_name = filename_no_ext[len(profile_id)+1:]
+                                    if test_name == test_title_filename:
+                                        images_found.append((profile_id, file_path))
                         if images_found:
-                            # Sort by profile_id
                             images_found.sort(key=lambda x: x[0])
-                            # Display images in a grid with profile labels
                             cols_per_row = 3
                             for i in range(0, len(images_found), cols_per_row):
                                 cols = st.columns(cols_per_row)
@@ -2841,105 +2969,68 @@ elif st.session_state.page == 'manage_tests':
                                         with col:
                                             st.markdown(f"**{profile_id}**")
                                             try:
-                                                img = load_image(img_path)
-                                                st.image(img, use_container_width=True)
+                                                img = load_image_cached(str(img_path))
+                                                st.image(img, width='stretch')
                                             except Exception as e:
                                                 st.error(f"Failed to load image: {e}")
                         else:
                             st.info("No images found for this test across any profiles")
                     else:
                         st.warning("Test title missing")
-                
-                # Add button to run analysis for all profiles for this test
+
                 st.markdown("---")
-                test_id_for_button = test.get('id', '')
-                if st.button(f"🤖 Run AI Analysis for All Profiles", key=f"analyze_all_{test_id_for_button}", help="Analyze this test across all profiles that have uploaded images"):
-                    # Find all profiles with images for this test
-                    profiles_to_analyze = []
-                    all_profile_dirs = storage.list_files("profile_results", "*")
-                    profile_ids = set()
-                    for file_path in all_profile_dirs:
-                        parts = file_path.split('/')
-                        if len(parts) >= 2:
-                            profile_ids.add(parts[1])
-                    
-                    # Check which profiles have images for this test
-                    for prof_id in profile_ids:
-                        output_dir = Path(f"profile_results/{prof_id}")
-                        img_path = find_image_file(output_dir, prof_id, test_title, None)
-                        if img_path:
-                            profiles_to_analyze.append(prof_id)
-                    
-                    if not profiles_to_analyze:
-                        st.warning("⚠️ No profiles found with uploaded images for this test")
+                st.markdown("#### 📝 Profile Prompts")
+                debug_log.append(f"[{time.time() - start_time:.2f}s]   Entering Prompts expander for test: {test.get('title', 'Untitled')}")
+                debug_container.code("\n".join(debug_log[-10:]))
+                with st.expander("Show full prompts for all profiles", expanded=False):
+                    test_prompt = test.get('prompt', '')
+                    test_params = test.get('params', '')
+                    test_section = test.get('section', '')
+                    if test_prompt:
+                        st.markdown("**Global Parameters** (applied to all prompts)")
+                        test_global_params = st.text_input(
+                            "Global parameters for this test",
+                            value=st.session_state.get('global_params', '--ar 16:9 --quality 4 --seed 20161027'),
+                            key=f"test_global_params_{test.get('id', '')}",
+                            help="Add --ar, --quality, --seed, etc. These will be added to all prompts"
+                        )
+                        st.caption(f"📌 Test-specific parameters (stored with test): `{test_params if test_params else 'none'}`")
+                        st.markdown("---")
+                        all_profile_ids = get_existing_profile_ids()
+                        all_prompts = []
+                        prompt_parts = [test_prompt, test_params]
+                        if test_global_params.strip():
+                            global_params_to_add = test_global_params.strip()
+                            if str(test_section).startswith('VOID'):
+                                global_params_to_add = filter_seed_from_params(global_params_to_add)
+                            if global_params_to_add:
+                                prompt_parts.append(global_params_to_add)
+                        baseline_prompt = " ".join(part for part in prompt_parts if part)
+                        all_prompts.append(f"# Baseline (no profile)\n{baseline_prompt}")
+                        for prof_id in all_profile_ids:
+                            prompt_parts = [test_prompt, test_params]
+                            if test_global_params.strip():
+                                global_params_to_add = test_global_params.strip()
+                                if str(test_section).startswith('VOID'):
+                                    global_params_to_add = filter_seed_from_params(global_params_to_add)
+                                if global_params_to_add:
+                                    prompt_parts.append(global_params_to_add)
+                            prompt_parts.append(f"--p {prof_id}")
+                            profile_prompt = " ".join(part for part in prompt_parts if part)
+                            all_prompts.append(f"# Profile: {prof_id}\n{profile_prompt}")
+                        prompts_text = "\n\n".join(all_prompts)
+                        st.text_area(
+                            "Copy prompts for all profiles",
+                            value=prompts_text,
+                            height=300,
+                            key=f"prompts_{test.get('id', '')}",
+                            help="Copy these prompts to run in MidJourney"
+                        )
                     else:
-                        with st.spinner(f"🤖 Analyzing {len(profiles_to_analyze)} profiles for test '{test_title}'..."):
-                            import config
-                            if not config.OPENAI_API_KEY:
-                                st.error("❌ OpenAI API key not configured")
-                            else:
-                                success_count = 0
-                                error_count = 0
-                                
-                                for prof_id in profiles_to_analyze:
-                                    try:
-                                        # Load existing analysis
-                                        analysis_file = Path("profile_analyses") / f"{prof_id}_analysis.json"
-                                        analysis_data = storage.read_json(str(analysis_file))
-                                        
-                                        if not analysis_data:
-                                            # Create new analysis structure if doesn't exist
-                                            analysis_data = {
-                                                'profile_id': prof_id,
-                                                'ratings': {},
-                                                'profile_label': '',
-                                                'profile_dna': []
-                                            }
-                                        
-                                        # Get the image path
-                                        output_dir = Path(f"profile_results/{prof_id}")
-                                        img_path = find_image_file(output_dir, prof_id, test_title, None)
-                                        
-                                        if img_path:
-                                            # Convert to string to ensure compatibility
-                                            img_path_str = str(img_path)
-                                            
-                                            # Create a row dict with the expected keys (capital letters)
-                                            test_row = {
-                                                'Title': test.get('title', ''),
-                                                'Prompt': test.get('prompt', ''),
-                                                'Section': test.get('section', ''),
-                                                'Parameter Values': test.get('params', '')
-                                            }
-                                            
-                                            # Rate this single test
-                                            result = batch_ai_rate_images(
-                                                uploaded_tests=[(test_title, img_path_str, test_row)],
-                                                profile_id=prof_id,
-                                                profile_label=analysis_data.get('profile_label', ''),
-                                                existing_ratings=analysis_data.get('ratings', {})
-                                            )
-                                            
-                                            if result and 'ratings' in result and test_title in result['ratings']:
-                                                # Update the rating for this test
-                                                analysis_data['ratings'][test_title] = result['ratings'][test_title]
-                                                
-                                                # Save updated analysis
-                                                save_analysis(prof_id, analysis_data)
-                                                success_count += 1
-                                            else:
-                                                error_count += 1
-                                        
-                                    except Exception as e:
-                                        st.error(f"Error analyzing {prof_id}: {str(e)}")
-                                        error_count += 1
-                                
-                                if success_count > 0:
-                                    st.success(f"✅ Successfully analyzed {success_count} profile(s)")
-                                if error_count > 0:
-                                    st.warning(f"⚠️ {error_count} profile(s) failed")
-                                
-                                st.rerun()
+                        st.warning("Test prompt missing")
+
+                debug_log.append(f"[{time.time() - start_time:.2f}s] Finished rendering test: {test.get('title', 'Untitled')}")
+                debug_container.code("\n".join(debug_log[-10:]))
     
     with test_tabs[1]:  # Add Test
         st.subheader("Add New Test")
