@@ -10,6 +10,7 @@ from storage_helpers import Path, load_image, save_image
 import base64
 import os
 from st_img_pastebutton import paste
+import hashlib
 import test_prompts_manager as tpm
 from dotenv import load_dotenv
 from storage import get_storage
@@ -24,6 +25,32 @@ load_dotenv()
 ANALYSIS_PROMPT_VERSION = "2.3-signature"  # v2.3: Enhanced commentary to capture profile's aesthetic signature (tone, color, texture) for better DNA and recommendations
 
 st.set_page_config(page_title="MidJourney Profile Tester", layout="wide")
+
+
+def get_test_token(test_name: str) -> str:
+    """Return GUID token for a test title when available, otherwise a safe title.
+
+    Tries exact match, then case-insensitive match, then id match. Falls back to
+    replacing spaces/slashes with underscores.
+    """
+    try:
+        tests = tpm.load_tests()
+        # Exact match
+        for t in tests:
+            if t.get('title') == test_name and t.get('guid'):
+                return t.get('guid')
+        # Case-insensitive trimmed match
+        key = test_name.strip().lower()
+        for t in tests:
+            if t.get('title') and t.get('title').strip().lower() == key and t.get('guid'):
+                return t.get('guid')
+        # Match by id (safe id)
+        for t in tests:
+            if t.get('id') and t.get('id') == test_name:
+                return t.get('guid') if t.get('guid') else t.get('id')
+    except Exception:
+        pass
+    return test_name.replace(' ', '_').replace('/', '_')
 
 # Global parameters persistence file
 GLOBAL_PARAMS_FILE = Path("global_params.json")
@@ -114,13 +141,14 @@ def find_image_file(output_dir, profile_id, test_name, image_num=None):
     Returns:
         Path object if file exists, None otherwise
     """
-    safe_name = test_name.replace(' ', '_').replace('/', '_')
-    
+    # Prefer test GUID when available (new migration), otherwise fall back to safe title
+    token = get_test_token(test_name)
+
     # Build filename with optional image number
     if image_num:
-        base_name = f"{profile_id}_{safe_name}_{image_num}"
+        base_name = f"{profile_id}_{token}_{image_num}"
     else:
-        base_name = f"{profile_id}_{safe_name}"
+        base_name = f"{profile_id}_{token}"
     
     # Get cached list of filenames for this profile
     existing_files = get_profile_image_files(profile_id)
@@ -234,82 +262,159 @@ def load_tests_df(status_filter='current'):
     })
     return df[['Section', 'Title', 'Prompt', 'Parameter Values']]
 
-def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None):
+def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, show_preview=True):
     """Handle individual test image upload.
     
     Args:
         image_num: For multi-image tests, the image number (1-8). None for single-image tests.
     """
-    # Display title
-    if image_num:
-        st.markdown(f"**{test_name} #{image_num}**")
-    else:
-        st.markdown(f"**{test_name}**")
+    # Display title (optional - Tests page grid hides per-profile titles)
+    if show_preview:
+        if image_num:
+            st.markdown(f"**{test_name} #{image_num}**")
+        else:
+            st.markdown(f"**{test_name}**")
     
-    # Create safe filename - new uploads will be .jpg
-    safe_name = test_name.replace(' ', '_').replace('/', '_')
+    # Create token for filename: prefer test GUID if available, else safe title
+    try:
+        test_obj = tpm.get_test_by_title(test_name)
+        token = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name.replace(' ', '_').replace('/', '_')
+    except Exception:
+        token = test_name.replace(' ', '_').replace('/', '_')
     if image_num:
-        filename = f"{profile_id if profile_id else 'baseline'}_{safe_name}_{image_num}.jpg"
+        filename = f"{profile_id if profile_id else 'baseline'}_{token}_{image_num}.jpg"
     else:
-        filename = f"{profile_id if profile_id else 'baseline'}_{safe_name}.jpg"
+        filename = f"{profile_id if profile_id else 'baseline'}_{token}.jpg"
     filepath = output_dir / filename
     
     # Check if image exists (handles both .jpg and .png)
     existing_filepath = find_image_file(output_dir, profile_id if profile_id else 'baseline', test_name, image_num)
     if existing_filepath:
-        # Load image from storage for display (cached)
-        img_display = load_image_cached(str(existing_filepath))
-        st.image(img_display, width='stretch')
-        delete_key = f"delete_{idx}_{image_num}" if image_num else f"delete_{idx}"
-        if st.button("🗑️", key=delete_key):
-            existing_filepath.unlink()
-            
-            # Clear the analysis rating for this test
-            analysis_file = Path("profile_analyses") / f"{profile_id if profile_id else 'baseline'}_analysis.json"
-            analysis_data = get_storage().read_json(str(analysis_file))
-            if analysis_data and "ratings" in analysis_data:
-                if test_name in analysis_data["ratings"]:
-                    del analysis_data["ratings"][test_name]
-                    get_storage().write_json(str(analysis_file), analysis_data)
-            
-            # Clear cache so deleted image no longer shows
-            get_profile_image_files.clear()
-            count_profile_images.clear()
-            load_image_cached.clear()
-            st.rerun()
+        # Optionally show image preview (Tests page may prefer a compact grid instead)
+        if show_preview:
+            img_display = load_image_cached(str(existing_filepath))
+            st.image(img_display, width='stretch')
+            display_profile = profile_id if profile_id else 'baseline'
+            delete_key = f"delete_{idx}_{image_num}" if image_num else f"delete_{idx}"
+
+            if st.button(f"🗑️ Delete ({display_profile})", key=delete_key):
+                # Use storage API to delete so S3 backend works
+                try:
+                    get_storage().delete(str(existing_filepath))
+                except Exception:
+                    try:
+                        existing_filepath.unlink()
+                    except Exception:
+                        pass
+
+                # Clear the analysis rating for this test
+                analysis_file = Path("profile_analyses") / f"{profile_id if profile_id else 'baseline'}_analysis.json"
+                analysis_data = get_storage().read_json(str(analysis_file))
+                if analysis_data and "ratings" in analysis_data:
+                    # Remove rating stored under GUID or legacy title key
+                    try:
+                        test_obj = tpm.get_test_by_title(test_name)
+                    except Exception:
+                        test_obj = None
+                    rating_key = (test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name)
+                    removed = False
+                    if rating_key in analysis_data.get('ratings', {}):
+                        try:
+                            del analysis_data['ratings'][rating_key]
+                            removed = True
+                        except Exception:
+                            pass
+                    # Also remove legacy title-key if present
+                    if test_name in analysis_data.get('ratings', {}):
+                        try:
+                            del analysis_data['ratings'][test_name]
+                            removed = True
+                        except Exception:
+                            pass
+                    if removed:
+                        get_storage().write_json(str(analysis_file), analysis_data)
+
+                # Clear caches so upload controls appear on rerun
+                try:
+                    get_profile_image_files.clear()
+                except Exception:
+                    pass
+                try:
+                    count_profile_images.clear()
+                except Exception:
+                    pass
+                try:
+                    load_image_cached.clear()
+                except Exception:
+                    pass
+
+                st.rerun()
     else:
         # Paste button and file uploader
         paste_col, upload_col = st.columns([1, 1])
-        
+
+        display_profile = profile_id if profile_id else 'baseline'
         paste_key = f"paste_{profile_id if profile_id else 'baseline'}_{idx}_{image_num}" if image_num else f"paste_{profile_id if profile_id else 'baseline'}_{idx}"
         upload_key = f"upload_{profile_id if profile_id else 'baseline'}_{idx}_{image_num}" if image_num else f"upload_{profile_id if profile_id else 'baseline'}_{idx}"
-        
+
         with paste_col:
             image_data = paste(
-                label="📋 Paste",
+                label=f"📋 Paste ({display_profile})",
                 key=paste_key
             )
             
             if image_data is not None:
-                # Decode base64 image
-                header, encoded = image_data.split(",", 1)
-                binary_data = base64.b64decode(encoded)
-                bytes_data = BytesIO(binary_data)
-                img = Image.open(bytes_data)
-                # Optimize and save as JPEG
-                img = optimize_image_for_storage(img)
-                filepath = filepath.with_suffix('.jpg')
-                save_image(filepath, img, format='JPEG', quality=90)
-                # Clear cache so new image is detected
-                get_profile_image_files.clear()
-                count_profile_images.clear()
-                load_image_cached.clear()
-                st.success("✅ Pasted!")
-                st.rerun()
+                # Avoid processing the same pasted image repeatedly across reruns
+                try:
+                    header, encoded = image_data.split(",", 1)
+                except Exception:
+                    header = None
+                    encoded = None
+
+                if encoded:
+                    h = hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+                    session_hash_key = f"paste_hash_{paste_key}"
+                    # If we've seen this paste before, verify the expected file exists.
+                    if st.session_state.get(session_hash_key) == h:
+                        existing_files = get_profile_image_files(profile_id if profile_id else 'baseline')
+                        expected_jpg = f"{profile_id if profile_id else 'baseline'}_{token}_{image_num}.jpg" if image_num else f"{profile_id if profile_id else 'baseline'}_{token}.jpg"
+                        expected_png = expected_jpg[:-4] + '.png'
+                        if expected_jpg in existing_files or expected_png in existing_files:
+                            # File is present but UI may be stale: refresh caches and rerun to show it
+                            get_profile_image_files.clear()
+                            count_profile_images.clear()
+                            load_image_cached.clear()
+                            st.success("✅ Pasted!")
+                            st.rerun()
+                        # Otherwise fall through and re-process the paste (hash likely stale)
+                    # Process and record hash
+                    binary_data = base64.b64decode(encoded)
+                    bytes_data = BytesIO(binary_data)
+                    img = Image.open(bytes_data)
+                    # Optimize and save as JPEG
+                    img = optimize_image_for_storage(img)
+                    filepath = filepath.with_suffix('.jpg')
+                    save_image(filepath, img, format='JPEG', quality=90)
+                    # Clear cache so new image is detected
+                    get_profile_image_files.clear()
+                    count_profile_images.clear()
+                    load_image_cached.clear()
+                    try:
+                        st.session_state[session_hash_key] = h
+                    except Exception:
+                        pass
+                    # Clear the paste widget state so the same image isn't reprocessed as a new component value
+                    try:
+                        if paste_key in st.session_state:
+                            del st.session_state[paste_key]
+                    except Exception:
+                        pass
+                    st.success("✅ Pasted!")
+                    st.rerun()
         
         with upload_col:
             uploaded = st.file_uploader(
-                "📤 Upload",
+                f"📤 Upload ({display_profile})",
                 type=['png', 'jpg', 'jpeg', 'webp'],
                 key=upload_key,
                 help="Drag & drop or click to browse",
@@ -317,17 +422,47 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None):
             )
             
             if uploaded:
-                # Optimize and save as JPEG
-                img = Image.open(uploaded)
-                img = optimize_image_for_storage(img)
-                filepath = filepath.with_suffix('.jpg')
-                save_image(filepath, img, format='JPEG', quality=90)
-                # Clear cache so new image is detected
-                get_profile_image_files.clear()
-                count_profile_images.clear()
-                load_image_cached.clear()
-                st.success("✅ Saved!")
-                st.rerun()
+                # Compute a hash for the uploaded bytes to avoid double-processing
+                try:
+                    data_bytes = uploaded.getvalue()
+                except Exception:
+                    data_bytes = None
+
+                uploaded_hash_key = f"upload_hash_{upload_key}"
+                if data_bytes:
+                    uh = hashlib.sha256(data_bytes).hexdigest()
+                    # If we've seen this upload before, verify the expected file exists
+                    if st.session_state.get(uploaded_hash_key) == uh:
+                        existing_files = get_profile_image_files(profile_id if profile_id else 'baseline')
+                        expected_jpg = f"{profile_id if profile_id else 'baseline'}_{token}_{image_num}.jpg" if image_num else f"{profile_id if profile_id else 'baseline'}_{token}.jpg"
+                        expected_png = expected_jpg[:-4] + '.png'
+                        if expected_jpg in existing_files or expected_png in existing_files:
+                            get_profile_image_files.clear()
+                            count_profile_images.clear()
+                            load_image_cached.clear()
+                            st.success("✅ Saved!")
+                            st.rerun()
+                        # Otherwise fall through and re-process the upload (hash likely stale)
+                    img = Image.open(BytesIO(data_bytes))
+                    img = optimize_image_for_storage(img)
+                    filepath = filepath.with_suffix('.jpg')
+                    save_image(filepath, img, format='JPEG', quality=90)
+                    # Clear cache so new image is detected
+                    get_profile_image_files.clear()
+                    count_profile_images.clear()
+                    load_image_cached.clear()
+                    try:
+                        st.session_state[uploaded_hash_key] = uh
+                    except Exception:
+                        pass
+                    # Clear the uploader widget state to avoid reprocessing on rerun
+                    try:
+                        if upload_key in st.session_state:
+                            del st.session_state[upload_key]
+                    except Exception:
+                        pass
+                    st.success("✅ Saved!")
+                    st.rerun()
 
 def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_ratings=None):
     """
@@ -603,7 +738,16 @@ Return as JSON:
         
         # Update analysis data
         analysis_data["profile_label"] = result.get("profile_label", "")
-        analysis_data["profile_dna"] = result.get("profile_dna", [])
+        # User preference: keep manual traits first, drop previously AI-generated traits,
+        # then append new AI-generated traits (so manual traits always stick and come first).
+        new_dna = result.get("profile_dna", []) or []
+        manual_list = analysis_data.get("profile_dna_manual", []) or []
+        # Build merged list: manual traits first (in their stored order), then new AI traits not already present
+        merged_dna = list(manual_list)
+        for trait in new_dna:
+            if trait not in merged_dna:
+                merged_dna.append(trait)
+        analysis_data["profile_dna"] = merged_dna
         
         # Rebuild affinity summary from all ratings
         affinity_summary = {
@@ -1162,6 +1306,13 @@ elif st.session_state.page == 'images' and proceed:
             
             _ = get_profile_image_files(profile_key)
             debug_log.append(f"[{time.time() - start_time:.2f}s] File list loaded")
+            # Also collect a cached list of ALL image files across profiles for compact grid views
+            storage = get_storage()
+            try:
+                all_image_files_for_tests = storage.list_files("profile_results", "*.jpg") + storage.list_files("profile_results", "*.png")
+            except Exception:
+                all_image_files_for_tests = []
+            debug_log.append(f"[{time.time() - start_time:.2f}s] Total image files across profiles: {len(all_image_files_for_tests)}")
             debug_container.code("\n".join(debug_log))
             
             # Pre-load ALL images in parallel for instant rendering
@@ -1230,6 +1381,18 @@ elif st.session_state.page == 'images' and proceed:
                                     img_num = row_num * 4 + col_idx + 1
                                     with col:
                                         render_test_upload(profile_id, test_name, output_dir, f"{idx}_{img_num}", image_num=img_num)
+                            # Collect existing images for this VOID test across all profiles
+                            images_found = []
+                            token = get_test_token(test_name)
+                            for file_path in all_image_files_for_tests:
+                                parts = file_path.split('/')
+                                if len(parts) >= 3:
+                                    prof = parts[1]
+                                    filename = parts[2]
+                                    filename_no_ext = filename.rsplit('.', 1)[0]
+                                    if filename_no_ext.startswith(f"{prof}_{token}"):
+                                        images_found.append((prof, file_path))
+
                             st.markdown("---")
                 else:
                     # Regular tests - Create grid - 5 columns per row
@@ -1620,7 +1783,19 @@ elif st.session_state.page == 'rate':
                                         
                                         # Update ratings (already cleaned in batch function)
                                         for test_name, rating_data in batch_result.get("ratings", {}).items():
-                                            analysis_data["ratings"][test_name] = rating_data
+                                            try:
+                                                test_obj = tpm.get_test_by_title(test_name)
+                                            except Exception:
+                                                test_obj = None
+                                            write_key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                            analysis_data.setdefault('ratings', {})
+                                            analysis_data['ratings'][write_key] = rating_data
+                                            # remove legacy title key if GUID used
+                                            if write_key != test_name and test_name in analysis_data['ratings']:
+                                                try:
+                                                    del analysis_data['ratings'][test_name]
+                                                except Exception:
+                                                    pass
                                         
                                         new_rating_count = len(batch_result.get('ratings', {}))
                                         remaining = unrated_count - new_rating_count
@@ -1729,6 +1904,8 @@ elif st.session_state.page == 'rate':
     
     # Show existing DNA traits
     dna_list = analysis_data.get("profile_dna", [])
+    # Keep a separate list of manual traits the user explicitly added
+    manual_list = analysis_data.get("profile_dna_manual", []) or []
     
     cols = st.columns([4, 1])
     with cols[0]:
@@ -1740,8 +1917,13 @@ elif st.session_state.page == 'rate':
     with cols[1]:
         if st.button("➕ Add", key="add_dna"):
             if new_dna.strip():
-                dna_list.append(new_dna.strip())
-                analysis_data["profile_dna"] = dna_list
+                # Record as a manual trait and rebuild the visible DNA list
+                manual_list.append(new_dna.strip())
+                analysis_data["profile_dna_manual"] = manual_list
+                # Preserve any existing non-manual traits after manual ones
+                existing = analysis_data.get("profile_dna", []) or []
+                rest = [t for t in existing if t not in manual_list]
+                analysis_data["profile_dna"] = manual_list + rest
                 get_storage().write_json(str(analysis_file), analysis_data)
                 st.rerun()
     
@@ -1756,8 +1938,11 @@ elif st.session_state.page == 'rate':
         
         # Check if order has changed
         if sorted_items and sorted_items != dna_list:
-            # Save the new order
+            # Save the new order for profile_dna
             analysis_data["profile_dna"] = sorted_items
+            # Also update manual list order to keep manual traits first in their new order
+            manual_list = [t for t in sorted_items if t in (analysis_data.get("profile_dna_manual", []) or [])]
+            analysis_data["profile_dna_manual"] = manual_list
             get_storage().write_json(str(analysis_file), analysis_data)
             st.rerun()
         
@@ -1772,7 +1957,12 @@ elif st.session_state.page == 'rate':
             with col2:
                 if st.button("🗑️", key=f"del_dna_{idx}"):
                     current_list = list(current_list)
-                    current_list.pop(idx)
+                    removed = current_list.pop(idx)
+                    # Remove from manual list if present
+                    manual_list = analysis_data.get("profile_dna_manual", []) or []
+                    if removed in manual_list:
+                        manual_list = [t for t in manual_list if t != removed]
+                        analysis_data["profile_dna_manual"] = manual_list
                     analysis_data["profile_dna"] = current_list
                     get_storage().write_json(str(analysis_file), analysis_data)
                     st.rerun()
@@ -1794,9 +1984,15 @@ elif st.session_state.page == 'rate':
         # Display tests for rating
         for idx, row in df.iterrows():
             test_name = row['Title']
+            # Prefer GUID as canonical key when available
+            try:
+                test_obj = tpm.get_test_by_title(test_name)
+            except Exception:
+                test_obj = None
+            test_key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
             
             # Check filter
-            is_rated = test_name in ratings
+            is_rated = (test_key in ratings) or (test_name in ratings)
             if show_filter == "Unrated Only" and is_rated:
                 continue
             if show_filter == "Rated Only" and not is_rated:
@@ -1818,8 +2014,8 @@ elif st.session_state.page == 'rate':
                         st.info("Upload images in the Images tab first (8 unseeded images expected)")
                     continue
                 
-                # Load existing rating if available
-                existing_rating = ratings.get(test_name, {})
+                # Load existing rating if available (support GUID or legacy title key)
+                existing_rating = ratings.get(test_key) or ratings.get(test_name, {})
                 
                 with st.expander(
                     f"{'✅' if is_rated else '⭐'} {test_name} ({len(image_files)}/8 images)" +
@@ -1946,7 +2142,12 @@ elif st.session_state.page == 'rate':
                     
                     with col_ai:
                         st.markdown("&nbsp;")  # Spacing
-                        has_rating = test_name in analysis_data.get('ratings', {})
+                        try:
+                            _test_obj = tpm.get_test_by_title(test_name)
+                        except Exception:
+                            _test_obj = None
+                        rating_key = _test_obj.get('guid') if _test_obj and _test_obj.get('guid') else test_name
+                        has_rating = rating_key in analysis_data.get('ratings', {}) or test_name in analysis_data.get('ratings', {})
                         ai_btn_label = "🔄 Re-rate" if has_rating else "🤖 AI Rate"
                         ai_btn_help = "Generate full AI rating (affinity, score, commentary) - will overwrite existing" if has_rating else "Generate full AI rating using OpenAI Vision"
                         
@@ -1972,14 +2173,25 @@ elif st.session_state.page == 'rate':
                                         # Call the batch function (it will handle the void test)
                                         result = batch_ai_rate_images(single_test, display_profile_id, existing_ratings=None)
                                         
-                                        if result and 'ratings' in result and test_name in result['ratings']:
-                                            # Update the rating
-                                            analysis_data['ratings'][test_name] = result['ratings'][test_name]
-                                            save_analysis(display_profile_id, analysis_data)
-                                            st.success("✨ Rating generated!")
-                                            import time
-                                            time.sleep(0.5)
-                                            st.rerun()
+                                        if result and 'ratings' in result:
+                                            returned_rating = result['ratings'].get(test_name)
+                                            if returned_rating:
+                                                write_key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                                analysis_data.setdefault('ratings', {})
+                                                analysis_data['ratings'][write_key] = returned_rating
+                                                # remove legacy title key when GUID used
+                                                if write_key != test_name and test_name in analysis_data['ratings']:
+                                                    try:
+                                                        del analysis_data['ratings'][test_name]
+                                                    except Exception:
+                                                        pass
+                                                save_analysis(display_profile_id, analysis_data)
+                                                st.success("✨ Rating generated!")
+                                                import time
+                                                time.sleep(0.5)
+                                                st.rerun()
+                                            else:
+                                                st.error("❌ No rating returned from AI")
                                         else:
                                             st.error("❌ No rating returned from AI")
                                     
@@ -1988,7 +2200,8 @@ elif st.session_state.page == 'rate':
                     
                     # Save button
                     if st.button(f"💾 Save Rating for {test_name}", key=f"save_{test_name}"):
-                        ratings[test_name] = {
+                        write_key = test_key
+                        ratings[write_key] = {
                             "affinity": affinity,
                             "score": score,
                             "confidence": confidence,
@@ -1996,6 +2209,12 @@ elif st.session_state.page == 'rate':
                             "commentary": commentary,
                             "color-palette": color_palette
                         }
+                        # Remove legacy title-key if different
+                        if write_key != test_name and test_name in ratings:
+                            try:
+                                del ratings[test_name]
+                            except Exception:
+                                pass
                         analysis_data["ratings"] = ratings
                         save_analysis(display_profile_id, analysis_data)
                         st.success(f"✅ Saved rating for {test_name}")
@@ -2120,7 +2339,12 @@ elif st.session_state.page == 'rate':
                         
                         with col_ai:
                             st.markdown("&nbsp;")  # Spacing
-                            has_rating = test_name in analysis_data.get('ratings', {})
+                            try:
+                                _test_obj = tpm.get_test_by_title(test_name)
+                            except Exception:
+                                _test_obj = None
+                            rating_key = _test_obj.get('guid') if _test_obj and _test_obj.get('guid') else test_name
+                            has_rating = rating_key in analysis_data.get('ratings', {}) or test_name in analysis_data.get('ratings', {})
                             ai_btn_label = "🔄 Re-rate" if has_rating else "🤖 AI Rate"
                             ai_btn_help = "Generate full AI rating (affinity, score, commentary) - will overwrite existing" if has_rating else "Generate full AI rating using OpenAI Vision"
                             
@@ -2445,8 +2669,13 @@ Be thorough and specific in your analysis."""
                                 if matching_tests:
                                     # Weight by matching tests
                                     for test_name, overlap in matching_tests[:5]:
-                                        if test_name in ratings:
-                                            rating = ratings[test_name]
+                                        try:
+                                            test_obj = tpm.get_test_by_title(test_name)
+                                        except Exception:
+                                            test_obj = None
+                                        key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                        rating = ratings.get(key) or ratings.get(test_name)
+                                        if rating:
                                             score = rating['score']
                                             affinity = rating['affinity']
                                             
@@ -2463,13 +2692,13 @@ Be thorough and specific in your analysis."""
                                     for test_name, rating in ratings.items():
                                         score = rating['score']
                                         affinity = rating['affinity']
-                                        
+
                                         weight = 1.0
                                         if affinity == 'native_fit':
                                             weight = 1.5
                                         elif affinity == 'resistant':
                                             weight = 0.5
-                                        
+
                                         total_score += score * weight
                                         total_weight += weight
                                 
@@ -2505,9 +2734,14 @@ Be thorough and specific in your analysis."""
                                     if matching_tests:
                                         st.markdown("**Relevant Test Performance:**")
                                         ratings = data.get('ratings', {})
-                                        for test_name, overlap in matching_tests[:3]:
-                                            if test_name in ratings:
-                                                rating = ratings[test_name]
+                                        for test_name, overlap in matching_tests[:5]:
+                                            try:
+                                                test_obj = tpm.get_test_by_title(test_name)
+                                            except Exception:
+                                                test_obj = None
+                                            key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                            rating = ratings.get(key) or ratings.get(test_name)
+                                            if rating:
                                                 affinity_emoji = {
                                                     'native_fit': '✅',
                                                     'workable': '⚠️',
@@ -2675,8 +2909,13 @@ elif st.session_state.page == 'recommend':
                             if matching_tests:
                                 # Use matching tests
                                 for test_name, overlap in matching_tests[:5]:  # Top 5 matches
-                                    if test_name in ratings:
-                                        rating = ratings[test_name]
+                                    try:
+                                        test_obj = tpm.get_test_by_title(test_name)
+                                    except Exception:
+                                        test_obj = None
+                                    key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                    rating = ratings.get(key) or ratings.get(test_name)
+                                    if rating:
                                         score = rating['score']
                                         affinity = rating['affinity']
                                         
@@ -2769,8 +3008,13 @@ elif st.session_state.page == 'recommend':
                                 if matching_tests:
                                     # Show scores for matching tests with aesthetic commentary
                                     for test_name, overlap in matching_tests[:5]:
-                                        if test_name in ratings:
-                                            rating = ratings[test_name]
+                                        try:
+                                            test_obj = tpm.get_test_by_title(test_name)
+                                        except Exception:
+                                            test_obj = None
+                                        key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                        rating = ratings.get(key) or ratings.get(test_name)
+                                        if rating:
                                             affinity_emoji = {
                                                 'native_fit': '✅',
                                                 'workable': '⚠️',
@@ -2885,6 +3129,7 @@ elif st.session_state.page == 'manage_tests':
             debug_container.code("\n".join(debug_log[-10:]))
             with st.expander(f"{test.get('section', 'N/A')} | {test.get('title', 'Untitled')} ({test.get('version', 'v1')})"):
                 st.markdown(f"**ID:** `{test.get('id', 'N/A')}`")
+                st.markdown(f"**GUID:** `{test.get('guid', 'N/A')}`")
                 st.markdown(f"**Status:** {test.get('status', 'current')}")
                 st.markdown(f"**Prompt:** {test.get('prompt', 'N/A')}")
                 st.markdown(f"**Parameters:** `{test.get('params', 'N/A')}`")
@@ -2895,88 +3140,309 @@ elif st.session_state.page == 'manage_tests':
                 debug_log.append(f"[{time.time() - start_time:.2f}s]   Entering Profile Analyses expander for test: {test.get('title', 'Untitled')}")
                 debug_container.code("\n".join(debug_log[-10:]))
                 with st.expander("📊 Profile Analyses", expanded=False):
-                    test_title = test.get('title', '')
-                    all_analyses = get_all_profile_analyses()
-                    profile_ratings = []
-                    for profile_id, data in all_analyses.items():
-                        try:
-                            profile_label = data.get('profile_label', 'No label')
-                            ratings = data.get('ratings', {})
-                            if test_title in ratings:
-                                rating_data = ratings[test_title]
-                                profile_ratings.append({
-                                    'profile_id': profile_id,
-                                    'label': profile_label,
-                                    'affinity': rating_data.get('affinity', 'unknown'),
-                                    'score': rating_data.get('score', 0),
-                                    'confidence': rating_data.get('confidence', 0),
-                                    'commentary': rating_data.get('commentary', 'No commentary')
-                                })
-                        except Exception:
-                            pass
-                    if profile_ratings:
-                        profile_ratings.sort(key=lambda x: x['score'], reverse=True)
-                        affinity_counts = {
-                            'native_fit': sum(1 for r in profile_ratings if r['affinity'] == 'native_fit'),
-                            'workable': sum(1 for r in profile_ratings if r['affinity'] == 'workable'),
-                            'resistant': sum(1 for r in profile_ratings if r['affinity'] == 'resistant')
-                        }
-                        avg_score = sum(r['score'] for r in profile_ratings) / len(profile_ratings) if profile_ratings else 0
-                        st.markdown(f"**Summary:** {len(profile_ratings)} profiles rated | Avg: {avg_score:.1f}/10 | ✅ {affinity_counts['native_fit']} native | ⚠️ {affinity_counts['workable']} workable | ❌ {affinity_counts['resistant']} resistant")
-                        all_profiles_text = []
-                        for rating in profile_ratings:
-                            affinity_emoji = {'native_fit': '✅', 'workable': '⚠️', 'resistant': '❌'}.get(rating['affinity'], '❓')
-                            confidence = rating.get('confidence', 0.0)
+                    expander_key = f"profile_analyses_expanded_{test.get('id', '')}"
+                    expanded = st.checkbox("Show Profile Analyses", key=expander_key)
+                    if expanded:
+                        test_title = test.get('title', '')
+                        # Prefer GUID as the canonical rating key when available
+                        test_key = test.get('guid') or test_title
+                        all_analyses = get_all_profile_analyses()
+                        profile_ratings = []
+                        for profile_id, data in all_analyses.items():
                             try:
-                                confidence_display = f"{float(confidence):.0%}"
-                            except (ValueError, TypeError):
-                                confidence_display = str(confidence)
-                            profile_text = f"{affinity_emoji} {rating['profile_id']} - \"{rating['label']}\" | Score: {rating['score']}/10 | Affinity: {rating['affinity']} | Confidence: {confidence_display}\n\n{rating['commentary']}\n"
-                            all_profiles_text.append(profile_text)
-                        combined_text = "\n" + "="*80 + "\n\n".join(all_profiles_text)
-                        st.text_area("All Profile Analyses", combined_text, height=400, key=f"analysis_{test.get('id', '')}")
-                    else:
-                        st.info("No profile ratings found for this test")
+                                profile_label = data.get('profile_label', 'No label')
+                                ratings = data.get('ratings', {})
+                                # Support both GUID-keyed and legacy title-keyed ratings
+                                rating_data = ratings.get(test_key) or ratings.get(test_title)
+                                if rating_data:
+                                    profile_ratings.append({
+                                        'profile_id': profile_id,
+                                        'label': profile_label,
+                                        'affinity': rating_data.get('affinity', 'unknown'),
+                                        'score': rating_data.get('score', 0),
+                                        'confidence': rating_data.get('confidence', 0),
+                                        'commentary': rating_data.get('commentary', 'No commentary')
+                                    })
+                            except Exception:
+                                pass
+                        if profile_ratings:
+                            profile_ratings.sort(key=lambda x: x['score'], reverse=True)
+                            affinity_counts = {
+                                'native_fit': sum(1 for r in profile_ratings if r['affinity'] == 'native_fit'),
+                                'workable': sum(1 for r in profile_ratings if r['affinity'] == 'workable'),
+                                'resistant': sum(1 for r in profile_ratings if r['affinity'] == 'resistant')
+                            }
+                            avg_score = sum(r['score'] for r in profile_ratings) / len(profile_ratings) if profile_ratings else 0
+                            st.markdown(f"**Summary:** {len(profile_ratings)} profiles rated | Avg: {avg_score:.1f}/10 | ✅ {affinity_counts['native_fit']} native | ⚠️ {affinity_counts['workable']} workable | ❌ {affinity_counts['resistant']} resistant")
+                            all_profiles_text = []
+                            for rating in profile_ratings:
+                                affinity_emoji = {'native_fit': '✅', 'workable': '⚠️', 'resistant': '❌'}.get(rating['affinity'], '❓')
+                                confidence = rating.get('confidence', 0.0)
+                                try:
+                                    confidence_display = f"{float(confidence):.0%}"
+                                except (ValueError, TypeError):
+                                    confidence_display = str(confidence)
+                                profile_text = f"{affinity_emoji} {rating['profile_id']} - \"{rating['label']}\" | Score: {rating['score']}/10 | Affinity: {rating['affinity']} | Confidence: {confidence_display}\n\n{rating['commentary']}\n"
+                                all_profiles_text.append(profile_text)
+                            combined_text = "\n" + "="*80 + "\n\n".join(all_profiles_text)
+                            st.text_area("All Profile Analyses", combined_text, height=400, key=f"analysis_{test.get('id', '')}")
+                            # Analyze missing ratings across profiles (button placed in the analyses area)
+                            if st.button("🤖 Analyze Missing Across Profiles", key=f"analyze_missing_btn_{test.get('id','')}"):
+                                all_profile_ids_local = get_existing_profile_ids()
+                                profiles_to_check = [''] + all_profile_ids_local
+                                progress = st.progress(0)
+                                total = len(profiles_to_check)
+                                done = 0
+                                analyzed = 0
+                                skipped = 0
+                                errors = []
+                                for prof in profiles_to_check:
+                                    try:
+                                        prof_id_check = prof if prof else 'baseline'
+                                        analysis_file = Path("profile_analyses") / f"{prof_id_check}_analysis.json"
+                                        analysis_data = get_storage().read_json(str(analysis_file)) or {"ratings": {}}
+                                        # Check for existing rating under GUID or title
+                                        rating_key = test.get('guid') or test.get('title')
+                                        existing_ratings_dict = analysis_data.get('ratings', {})
+                                        if rating_key in existing_ratings_dict or test.get('title') in existing_ratings_dict:
+                                            skipped += 1
+                                            done += 1
+                                            progress.progress(int(done/total*100))
+                                            continue
+
+                                        # Find uploaded image(s)
+                                        if test.get('title') in ["Null Prompt (Photo)", "Null Prompt (Art)"]:
+                                            void_images = []
+                                            for img_num in range(1, 9):
+                                                fp = find_image_file(Path(f"profile_results/{prof if prof else 'baseline'}"), prof if prof else 'baseline', test.get('title'), image_num=img_num)
+                                                if fp:
+                                                    void_images.append(fp)
+                                            if not void_images:
+                                                skipped += 1
+                                                done += 1
+                                                progress.progress(int(done/total*100))
+                                                continue
+                                            single_test = [(test.get('title'), void_images, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
+                                        else:
+                                            fp = find_image_file(Path(f"profile_results/{prof if prof else 'baseline'}"), prof if prof else 'baseline', test.get('title'))
+                                            if not fp:
+                                                skipped += 1
+                                                done += 1
+                                                progress.progress(int(done/total*100))
+                                                continue
+                                            single_test = [(test.get('title'), fp, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
+
+                                        with st.spinner(f"Analyzing {prof_id_check}..."):
+                                            result = batch_ai_rate_images(single_test, prof_id_check, existing_ratings=analysis_data.get('ratings', {}))
+
+                                            if result and 'ratings' in result:
+                                                # Result is keyed by the input test title; store under GUID when available
+                                                returned_rating = result['ratings'].get(test.get('title'))
+                                                if returned_rating:
+                                                    analysis_data.setdefault('ratings', {})
+                                                    write_key = test.get('guid') or test.get('title')
+                                                    analysis_data['ratings'][write_key] = returned_rating
+                                                    # Also remove any stale legacy title-key if GUID is used
+                                                    if write_key != test.get('title') and test.get('title') in analysis_data['ratings']:
+                                                        try:
+                                                            del analysis_data['ratings'][test.get('title')]
+                                                        except Exception:
+                                                            pass
+                                                        save_analysis(prof_id_check, analysis_data)
+                                                        analyzed += 1
+                                                    else:
+                                                        errors.append(f"No rating returned for {prof_id_check}")
+
+                                    except Exception as e:
+                                        errors.append(f"{prof if prof else 'baseline'}: {e}")
+                                    done += 1
+                                    progress.progress(int(done/total*100))
+
+                                st.success(f"Analysis complete — {analyzed} analyzed, {skipped} skipped, {len(errors)} errors")
+                                if errors:
+                                    for err in errors:
+                                        st.error(err)
+                        else:
+                            st.info("No profile ratings found for this test")
 
                 st.markdown("---")
                 st.markdown("#### 🖼️ Test Images Across Profiles")
                 debug_log.append(f"[{time.time() - start_time:.2f}s]   Entering Images expander for test: {test.get('title', 'Untitled')}")
                 debug_container.code("\n".join(debug_log[-10:]))
                 with st.expander("Show images from all profiles", expanded=False):
-                    test_title = test.get('title', '')
-                    if test_title:
-                        images_found = []
-                        test_title_filename = test_title.replace(' ', '_')
-                        for file_path in all_image_files_for_tests:
-                            parts = file_path.split('/')
-                            if len(parts) >= 3:
-                                profile_id = parts[1]
-                                filename = parts[2]
-                                filename_no_ext = filename.rsplit('.', 1)[0]
-                                if filename_no_ext.startswith(f"{profile_id}_"):
-                                    test_name = filename_no_ext[len(profile_id)+1:]
-                                    if test_name == test_title_filename:
-                                        images_found.append((profile_id, file_path))
-                        if images_found:
-                            images_found.sort(key=lambda x: x[0])
-                            cols_per_row = 3
-                            for i in range(0, len(images_found), cols_per_row):
-                                cols = st.columns(cols_per_row)
-                                for j, col in enumerate(cols):
-                                    idx = i + j
-                                    if idx < len(images_found):
-                                        profile_id, img_path = images_found[idx]
-                                        with col:
-                                            st.markdown(f"**{profile_id}**")
-                                            try:
-                                                img = load_image_cached(str(img_path))
-                                                st.image(img, width='stretch')
-                                            except Exception as e:
-                                                st.error(f"Failed to load image: {e}")
+                    expander_key = f"images_expanded_{test.get('id', '')}"
+                    expanded = st.checkbox("Show Images", key=expander_key)
+                    if expanded:
+                        test_title = test.get('title', '')
+                        if test_title:
+                            test_title_filename = test_title.replace(' ', '_')
+                            # Get all profile IDs
+                            all_profile_ids = get_existing_profile_ids()
+
+                            st.markdown("---")
+                            st.markdown("### 📤 Upload Images for This Test Across All Profiles")
+
+                            # Baseline upload/delete using shared helper (hide individual preview here)
+                            baseline_dir = Path(f"profile_results/baseline")
+                            baseline_dir.mkdir(parents=True, exist_ok=True)
+                            render_test_upload('', test_title, baseline_dir, f"{test.get('id', '')}_baseline", show_preview=False)
+
+                            # Profile upload/delete controls using shared helper
+                            for prof_id in all_profile_ids:
+                                prof_dir = Path(f"profile_results/{prof_id}")
+                                prof_dir.mkdir(parents=True, exist_ok=True)
+                                render_test_upload(prof_id, test_title, prof_dir, f"{test.get('id', '')}_{prof_id}", show_preview=False)
+
+                            # Analyze missing ratings across profiles
+                            col_a, col_b = st.columns([3, 1])
+                            with col_a:
+                                st.markdown("<br>", unsafe_allow_html=True)
+                                if st.button("🤖 Analyze Missing Across Profiles", key=f"analyze_missing_{test.get('id','')}"):
+                                    # Gather profiles to check (include baseline as empty id)
+                                    profiles_to_check = [''] + all_profile_ids
+                                    progress = st.progress(0)
+                                    total = len(profiles_to_check)
+                                    done = 0
+                                    analyzed = 0
+                                    skipped = 0
+                                    errors = []
+                                    for p_idx, prof in enumerate(profiles_to_check):
+                                        try:
+                                            # Determine display id
+                                            prof_id_check = prof if prof else 'baseline'
+                                            # Load existing analysis for this profile
+                                            analysis_file = Path("profile_analyses") / f"{prof_id_check}_analysis.json"
+                                            analysis_data = get_storage().read_json(str(analysis_file)) or {"ratings": {}}
+
+                                            # Skip if already rated (check GUID first, then legacy title)
+                                            rating_key = test.get('guid') or test_title
+                                            existing_ratings_dict = analysis_data.get('ratings', {})
+                                            if rating_key in existing_ratings_dict or test_title in existing_ratings_dict:
+                                                skipped += 1
+                                                done += 1
+                                                progress.progress(int(done/total*100))
+                                                continue
+
+                                            # Find image(s) for this profile
+                                            if test_title in ["Null Prompt (Photo)", "Null Prompt (Art)"]:
+                                                # Void test - collect up to 8 images
+                                                void_images = []
+                                                for img_num in range(1, 9):
+                                                    fp = find_image_file(Path(f"profile_results/{prof if prof else 'baseline'}"), prof if prof else 'baseline', test_title, image_num=img_num)
+                                                    if fp:
+                                                        void_images.append(fp)
+                                                if not void_images:
+                                                    skipped += 1
+                                                    done += 1
+                                                    progress.progress(int(done/total*100))
+                                                    continue
+                                                single_test = [(test_title, void_images, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
+                                            else:
+                                                fp = find_image_file(Path(f"profile_results/{prof if prof else 'baseline'}"), prof if prof else 'baseline', test_title)
+                                                if not fp:
+                                                    skipped += 1
+                                                    done += 1
+                                                    progress.progress(int(done/total*100))
+                                                    continue
+                                                single_test = [(test_title, fp, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
+
+                                            # Call batch analysis for this single test/profile
+                                            with st.spinner(f"Analyzing {prof_id_check}..."):
+                                                result = batch_ai_rate_images(single_test, prof_id_check, existing_ratings=analysis_data.get('ratings', {}))
+
+                                            if result and 'ratings' in result:
+                                                returned_rating = result['ratings'].get(test_title)
+                                                if returned_rating:
+                                                    analysis_data.setdefault('ratings', {})
+                                                    write_key = test.get('guid') or test_title
+                                                    analysis_data['ratings'][write_key] = returned_rating
+                                                    # remove legacy title key if GUID used
+                                                    if write_key != test_title and test_title in analysis_data['ratings']:
+                                                        try:
+                                                            del analysis_data['ratings'][test_title]
+                                                        except Exception:
+                                                            pass
+                                                    save_analysis(prof_id_check, analysis_data)
+                                                    analyzed += 1
+                                                else:
+                                                    errors.append(f"No rating returned for {prof_id_check}")
+                                            else:
+                                                errors.append(f"No rating returned for {prof_id_check}")
+
+                                        except Exception as e:
+                                            errors.append(f"{prof if prof else 'baseline'}: {e}")
+                                        done += 1
+                                        progress.progress(int(done/total*100))
+
+                                    # Summary
+                                    st.success(f"Analysis complete — {analyzed} analyzed, {skipped} skipped, {len(errors)} errors")
+                                    if errors:
+                                        for err in errors:
+                                            st.error(err)
+
+                            with col_b:
+                                st.markdown("<br>", unsafe_allow_html=True)
+                                st.caption("Runs AI rating for any profiles that have an uploaded image but no rating for this test")
+
+                            st.markdown("---")
+                            # Collect matching images for this test across all profiles
+                            images_found = []
+                            test_title_filename = test_title.replace(' ', '_').replace('/', '_')
+                            for file_path in all_image_files_for_tests:
+                                parts = file_path.split('/')
+                                if len(parts) >= 3:
+                                    prof = parts[1]
+                                    filename = parts[2]
+                                    filename_no_ext = filename.rsplit('.', 1)[0]
+                                    if filename_no_ext.startswith(f"{prof}_{test_title_filename}"):
+                                        images_found.append((prof, file_path))
+
+                            if images_found:
+                                images_found.sort(key=lambda x: x[0])
+                                cols_per_row = 3
+                                for i in range(0, len(images_found), cols_per_row):
+                                    cols = st.columns(cols_per_row)
+                                    for j, col in enumerate(cols):
+                                        idx = i + j
+                                        if idx < len(images_found):
+                                            profile_id, img_path = images_found[idx]
+                                            with col:
+                                                st.markdown(f"**{profile_id}**")
+                                                try:
+                                                    img = load_image_cached(str(img_path))
+                                                    st.image(img, width='stretch')
+                                                    # Delete button
+                                                    if st.button(f"🗑️ Delete image for {profile_id}", key=f"delete_{profile_id}_{test_title}"):
+                                                        try:
+                                                            get_storage().delete(img_path)
+                                                        except Exception:
+                                                            # Fallback: if img_path is a Path-like, try string
+                                                            try:
+                                                                get_storage().delete(str(img_path))
+                                                            except Exception as e:
+                                                                st.error(f"Failed to delete image: {e}")
+                                                                continue
+                                                        # Clear caches so upload controls reappear
+                                                        try:
+                                                            get_profile_image_files.clear()
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            count_profile_images.clear()
+                                                        except Exception:
+                                                            pass
+                                                        try:
+                                                            load_image_cached.clear()
+                                                        except Exception:
+                                                            pass
+                                                        st.success(f"✅ Deleted image for {profile_id}")
+                                                        st.rerun()
+                                                except Exception as e:
+                                                    st.error(f"Failed to load image: {e}")
+                            else:
+                                st.info("No images found for this test across any profiles")
                         else:
-                            st.info("No images found for this test across any profiles")
-                    else:
-                        st.warning("Test title missing")
+                            st.warning("Test title missing")
 
                 st.markdown("---")
                 st.markdown("#### 📝 Profile Prompts")
@@ -3085,6 +3551,8 @@ elif st.session_state.page == 'manage_tests':
                 edit_section = st.selectbox("Section", sections, index=section_index)
                 edit_prompt = st.text_area("Prompt", value=selected_test.get('prompt', ''), height=100)
                 edit_params = st.text_input("Parameters", value=selected_test.get('params', ''))
+                # Show GUID for this test (read-only)
+                st.markdown(f"**GUID:** `{selected_test.get('guid', '(none)')}`")
                 
                 # Safely get version index
                 test_version = selected_test.get('version', 'v2')
@@ -3113,6 +3581,39 @@ elif st.session_state.page == 'manage_tests':
                             version=edit_version,
                             status=edit_status
                         )
+                        # If the title changed, rename existing image files to match new test filename pattern
+                        old_title = selected_test.get('title', '')
+                        if old_title and old_title != edit_title:
+                            old_safe = old_title.replace(' ', '_').replace('/', '_')
+                            new_safe = edit_title.replace(' ', '_').replace('/', '_')
+                            storage = get_storage()
+                            try:
+                                all_files = storage.list_files('profile_results', '*')
+                            except Exception:
+                                all_files = []
+                            moved = 0
+                            for fp in all_files:
+                                parts = fp.split('/')
+                                if len(parts) < 3:
+                                    continue
+                                prof = parts[1]
+                                filename = parts[2]
+                                filename_no_ext = filename.rsplit('.', 1)[0]
+                                if filename_no_ext.startswith(f"{prof}_{old_safe}"):
+                                    # Build new filename preserving extension
+                                    ext = filename.rsplit('.', 1)[1] if '.' in filename else 'jpg'
+                                    new_filename = filename.replace(f"{prof}_{old_safe}", f"{prof}_{new_safe}", 1)
+                                    old_path = fp
+                                    new_path = f"profile_results/{prof}/{new_filename}"
+                                    try:
+                                        data = storage.read_bytes(old_path)
+                                        storage.write_bytes(new_path, data)
+                                        storage.delete(old_path)
+                                        moved += 1
+                                    except Exception:
+                                        pass
+                            if moved:
+                                st.success(f"✅ Renamed {moved} image file(s) to match new test title")
                         st.success(f"✅ Updated test: {edit_title}")
                         
                         # Show prompts for all profiles

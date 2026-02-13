@@ -1,5 +1,6 @@
 """Test prompts management module."""
 import json
+import uuid
 from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -36,9 +37,11 @@ def add_test(title: str, prompt: str, section: str, params: str,
     tests = load_tests()
     
     test_id = title.replace(' ', '_').replace('/', '_')
-    
+    guid = uuid.uuid4().hex
+
     new_test = {
         'id': test_id,
+        'guid': guid,
         'title': title,
         'prompt': prompt,
         'section': section,
@@ -59,7 +62,11 @@ def update_test(test_id: str, **kwargs) -> Optional[Dict]:
     
     for test in tests:
         if test['id'] == test_id:
+            # Preserve existing guid if present
+            guid = test.get('guid')
             test.update(kwargs)
+            if guid:
+                test['guid'] = guid
             save_tests(tests)
             return test
     
@@ -90,6 +97,7 @@ def duplicate_test(test_id: str, new_version: Optional[str] = None) -> Optional[
         if test['id'] == test_id:
             new_test = test.copy()
             new_test['id'] = f"{test_id}_copy"
+            new_test['guid'] = uuid.uuid4().hex
             new_test['title'] = f"{test['title']} (Copy)"
             if new_version:
                 new_test['version'] = new_version
