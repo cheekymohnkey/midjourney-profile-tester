@@ -144,25 +144,30 @@ def find_image_file(output_dir, profile_id, test_name, image_num=None):
     # Prefer test GUID when available (new migration), otherwise fall back to safe title
     token = get_test_token(test_name)
 
-    # Build filename with optional image number
+    # Also consider legacy safe-title filenames in case profile still uses them
+    safe_name = test_name.replace(' ', '_').replace('/', '_')
+    candidates = []
     if image_num:
-        base_name = f"{profile_id}_{token}_{image_num}"
+        candidates.append(f"{profile_id}_{token}_{image_num}")
+        if safe_name != token:
+            candidates.append(f"{profile_id}_{safe_name}_{image_num}")
     else:
-        base_name = f"{profile_id}_{token}"
-    
+        candidates.append(f"{profile_id}_{token}")
+        if safe_name != token:
+            candidates.append(f"{profile_id}_{safe_name}")
+
     # Get cached list of filenames for this profile
     existing_files = get_profile_image_files(profile_id)
-    
-    # Check .jpg first (new format)
-    jpg_filename = f"{base_name}.jpg"
-    if jpg_filename in existing_files:
-        return output_dir / jpg_filename
-    
-    # Fall back to .png (legacy format)
-    png_filename = f"{base_name}.png"
-    if png_filename in existing_files:
-        return output_dir / png_filename
-    
+
+    # Check candidates in order for .jpg then .png
+    for base_name in candidates:
+        jpg_filename = f"{base_name}.jpg"
+        if jpg_filename in existing_files:
+            return output_dir / jpg_filename
+        png_filename = f"{base_name}.png"
+        if png_filename in existing_files:
+            return output_dir / png_filename
+
     return None
 
 @st.cache_data(ttl=60, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
@@ -874,6 +879,36 @@ if 'profile_id' not in st.session_state:
 if 'fullscreen' not in st.session_state:
     st.session_state.fullscreen = False
 
+# Debug Tools (sidebar) - helps force-clear caches and inspect storage listings
+with st.sidebar.expander("Debug Tools", expanded=False):
+    if st.button("Clear image caches and reload", key="debug_clear_caches"):
+        try:
+            get_profile_image_files.clear()
+            count_profile_images.clear()
+            get_existing_profile_ids.clear()
+            get_profile_completion_data.clear()
+            get_all_profile_analyses.clear()
+            load_image_cached.clear()
+        except Exception:
+            pass
+        # Use experimental rerun when available, otherwise set a flag and stop to force a refresh
+        rerun_fn = getattr(st, "experimental_rerun", None)
+        if callable(rerun_fn):
+            rerun_fn()
+        else:
+            st.session_state['_debug_refresh_needed'] = True
+            st.stop()
+
+    if st.button("Show storage listing (profile_results)", key="debug_list_storage"):
+        try:
+            storage = get_storage()
+            files = storage.list_files("profile_results", "*")
+            st.write("Total files:", len(files))
+            # Show up to 200 entries to avoid UI overload
+            st.write(files[:200])
+        except Exception as e:
+            st.write("Error listing storage:", e)
+
 # Only show UI chrome when NOT in fullscreen
 if not st.session_state.fullscreen:
     st.title("🎨 MidJourney Profile Tester")
@@ -922,12 +957,17 @@ if not st.session_state.fullscreen:
     with col_a:
         if existing_profiles:
             # Create display names with version indicators
+            analyses = get_all_profile_analyses()
+
             def format_profile_option(profile):
                 if not profile:
                     return ""
                 version = profile_versions.get(profile, 'unknown')
                 is_complete = profile_completion.get(profile, False)
-                
+
+                # Profile label from analysis (if available)
+                label = analyses.get(profile, {}).get('profile_label', '')
+
                 # Build status indicators
                 status = ""
                 if is_complete:
@@ -936,8 +976,14 @@ if not st.session_state.fullscreen:
                     status += "✓ "
                 elif version != 'unknown':
                     status += "⚠️ "
-                
-                return f"{profile} {status}".strip() if status else profile
+
+                # Short display: "id — Label [status]"
+                if label:
+                    display = f"{profile} — {label} {status}".strip()
+                else:
+                    display = f"{profile} {status}".strip()
+
+                return display
             
             profile_options = [""] + existing_profiles
             
@@ -1384,13 +1430,14 @@ elif st.session_state.page == 'images' and proceed:
                             # Collect existing images for this VOID test across all profiles
                             images_found = []
                             token = get_test_token(test_name)
+                            safe_title = test_name.replace(' ', '_').replace('/', '_')
                             for file_path in all_image_files_for_tests:
                                 parts = file_path.split('/')
                                 if len(parts) >= 3:
                                     prof = parts[1]
                                     filename = parts[2]
                                     filename_no_ext = filename.rsplit('.', 1)[0]
-                                    if filename_no_ext.startswith(f"{prof}_{token}"):
+                                    if filename_no_ext.startswith(f"{prof}_{token}") or filename_no_ext.startswith(f"{prof}_{safe_title}"):
                                         images_found.append((prof, file_path))
 
                             st.markdown("---")
@@ -1522,9 +1569,18 @@ elif st.session_state.page == 'rate':
         # Progress summary
         ratings = analysis_data.get("ratings", {})
         total_tests = len(df)
-        # Only count ratings for tests that actually exist
-        current_test_names = set(df['Title'].tolist())
-        rated_tests = len([t for t in ratings.keys() if t in current_test_names])
+        # Only count ratings for tests that actually exist. Support ratings stored under GUIDs or legacy titles.
+        current_test_names = list(df['Title'].tolist())
+        rated_tests = 0
+        rated_keys = set(ratings.keys())
+        for test_name in current_test_names:
+            try:
+                test_obj = tpm.get_test_by_title(test_name)
+            except Exception:
+                test_obj = None
+            guid = test_obj.get('guid') if test_obj and test_obj.get('guid') else None
+            if test_name in rated_keys or (guid and guid in rated_keys):
+                rated_tests += 1
         
         # Check analysis version
         current_version = ANALYSIS_PROMPT_VERSION
@@ -1564,8 +1620,17 @@ elif st.session_state.page == 'rate':
                         if filepath:
                             uploaded_tests.append((test_name, filepath, row))
                 
-                # Check which are already rated
-                already_rated_names = [name for name, _, _ in uploaded_tests if name in analysis_data.get("ratings", {})]
+                # Check which are already rated (support GUID keys and legacy title keys)
+                rated_keys = set(analysis_data.get("ratings", {}).keys())
+                already_rated_names = []
+                for name, _, _ in uploaded_tests:
+                    try:
+                        test_obj = tpm.get_test_by_title(name)
+                    except Exception:
+                        test_obj = None
+                    guid = test_obj.get('guid') if test_obj and test_obj.get('guid') else None
+                    if name in rated_keys or (guid and guid in rated_keys):
+                        already_rated_names.append(name)
                 unrated_count = len(uploaded_tests) - len(already_rated_names)
                 
                 # If there are unrated images, start automatically; otherwise just show dialog
@@ -1684,8 +1749,17 @@ elif st.session_state.page == 'rate':
                         if filepath:
                             uploaded_tests.append((test_name, filepath, row))
                 
-                # Check which are already rated
-                already_rated_names = [name for name, _, _ in uploaded_tests if name in analysis_data.get("ratings", {})]
+                # Check which are already rated (support GUID keys and legacy title keys)
+                rated_keys = set(analysis_data.get("ratings", {}).keys())
+                already_rated_names = []
+                for name, _, _ in uploaded_tests:
+                    try:
+                        test_obj = tpm.get_test_by_title(name)
+                    except Exception:
+                        test_obj = None
+                    guid = test_obj.get('guid') if test_obj and test_obj.get('guid') else None
+                    if name in rated_keys or (guid and guid in rated_keys):
+                        already_rated_names.append(name)
                 unrated_count = len(uploaded_tests) - len(already_rated_names)
                 
                 st.info(f"Found {len(uploaded_tests)} uploaded images: {len(already_rated_names)} already rated, {unrated_count} remaining")
@@ -1770,12 +1844,19 @@ elif st.session_state.page == 'rate':
                             with st.spinner(f"🤖 AI is analyzing {batch_size} images... This may take a minute..."):
                                 try:
                                     # Prepare batch request to OpenAI
-                                    batch_result = batch_ai_rate_images(
-                                        uploaded_tests=uploaded_tests,
-                                        profile_id=display_profile_id,
-                                        profile_label=profile_label_suggestion,
-                                        existing_ratings=analysis_data.get("ratings", {})
-                                    )
+                                    try:
+                                        batch_result = batch_ai_rate_images(
+                                            uploaded_tests=uploaded_tests,
+                                            profile_id=display_profile_id,
+                                            profile_label=profile_label_suggestion,
+                                            existing_ratings=analysis_data.get("ratings", {})
+                                        )
+                                    except Exception as e:
+                                        import traceback
+                                        tb = traceback.format_exc()
+                                        st.error(f"❌ Error during AI analysis: {e}")
+                                        st.exception(e)
+                                        batch_result = False
                                 
                                     if batch_result:
                                         # Note: batch_ai_rate_images now only returns ratings, not profile_label/profile_dna
@@ -2171,7 +2252,14 @@ elif st.session_state.page == 'rate':
                                         single_test = [(test_name, void_image_paths, row)]
                                         
                                         # Call the batch function (it will handle the void test)
-                                        result = batch_ai_rate_images(single_test, display_profile_id, existing_ratings=None)
+                                        try:
+                                            result = batch_ai_rate_images(single_test, display_profile_id, existing_ratings=None)
+                                        except Exception as e:
+                                            import traceback
+                                            tb = traceback.format_exc()
+                                            st.error(f"❌ Error: {e}")
+                                            st.exception(e)
+                                            result = None
                                         
                                         if result and 'ratings' in result:
                                             returned_rating = result['ratings'].get(test_name)
@@ -2232,8 +2320,13 @@ elif st.session_state.page == 'rate':
                         st.info("Upload image in the Images tab first")
                     continue
                 
-                # Load existing rating if available
-                existing_rating = ratings.get(test_name, {})
+                # Load existing rating if available (support GUID keys and legacy title keys)
+                try:
+                    test_obj = tpm.get_test_by_title(test_name)
+                except Exception:
+                    test_obj = None
+                test_key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                existing_rating = ratings.get(test_key) or ratings.get(test_name, {})
                 
                 # Check if just AI rated (to keep expander open and show message)
                 just_ai_rated = st.session_state.get(f'just_ai_rated_{test_name}', False)
@@ -3233,7 +3326,13 @@ elif st.session_state.page == 'manage_tests':
                                             single_test = [(test.get('title'), fp, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
 
                                         with st.spinner(f"Analyzing {prof_id_check}..."):
-                                            result = batch_ai_rate_images(single_test, prof_id_check, existing_ratings=analysis_data.get('ratings', {}))
+                                            try:
+                                                result = batch_ai_rate_images(single_test, prof_id_check, existing_ratings=analysis_data.get('ratings', {}))
+                                            except Exception as e:
+                                                import traceback
+                                                tb = traceback.format_exc()
+                                                errors.append(f"{prof if prof else 'baseline'}: {e}\n{tb}")
+                                                result = None
 
                                             if result and 'ratings' in result:
                                                 # Result is keyed by the input test title; store under GUID when available
@@ -3248,10 +3347,36 @@ elif st.session_state.page == 'manage_tests':
                                                             del analysis_data['ratings'][test.get('title')]
                                                         except Exception:
                                                             pass
-                                                        save_analysis(prof_id_check, analysis_data)
-                                                        analyzed += 1
-                                                    else:
-                                                        errors.append(f"No rating returned for {prof_id_check}")
+                                                    save_analysis(prof_id_check, analysis_data)
+                                                    analyzed += 1
+                                                else:
+                                                    try:
+                                                        keys = list(result.get('ratings', {}).keys())
+                                                    except Exception:
+                                                        keys = []
+                                                    errors.append(f"No rating returned for {prof_id_check} — response rating keys: {keys}")
+                                                    # Save full response for debugging
+                                                    try:
+                                                        import json, datetime, pathlib
+                                                        dump_dir = pathlib.Path("profile_analyses/backups")
+                                                        dump_dir.mkdir(parents=True, exist_ok=True)
+                                                        dump_file = dump_dir / f"{prof_id_check}_batch_response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                                                        dump_file.write_text(json.dumps(result, indent=2))
+                                                        print(f"Saved batch response to {dump_file}")
+                                                    except Exception as e:
+                                                        print(f"Failed to save batch response: {e}")
+                                            else:
+                                                # No result or missing 'ratings' key - dump for inspection
+                                                errors.append(f"No rating returned for {prof_id_check}")
+                                                try:
+                                                    import json, datetime, pathlib
+                                                    dump_dir = pathlib.Path("profile_analyses/backups")
+                                                    dump_dir.mkdir(parents=True, exist_ok=True)
+                                                    dump_file = dump_dir / f"{prof_id_check}_batch_response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                                                    dump_file.write_text(json.dumps({"result": str(result)}, indent=2))
+                                                    print(f"Saved batch response (empty) to {dump_file}")
+                                                except Exception as e:
+                                                    print(f"Failed to save empty batch response: {e}")
 
                                     except Exception as e:
                                         errors.append(f"{prof if prof else 'baseline'}: {e}")
@@ -3282,16 +3407,16 @@ elif st.session_state.page == 'manage_tests':
                             st.markdown("---")
                             st.markdown("### 📤 Upload Images for This Test Across All Profiles")
 
-                            # Baseline upload/delete using shared helper (hide individual preview here)
+                            # Baseline upload/delete using shared helper (show individual preview)
                             baseline_dir = Path(f"profile_results/baseline")
                             baseline_dir.mkdir(parents=True, exist_ok=True)
-                            render_test_upload('', test_title, baseline_dir, f"{test.get('id', '')}_baseline", show_preview=False)
+                            render_test_upload('', test_title, baseline_dir, f"{test.get('id', '')}_baseline", show_preview=True)
 
                             # Profile upload/delete controls using shared helper
                             for prof_id in all_profile_ids:
                                 prof_dir = Path(f"profile_results/{prof_id}")
                                 prof_dir.mkdir(parents=True, exist_ok=True)
-                                render_test_upload(prof_id, test_title, prof_dir, f"{test.get('id', '')}_{prof_id}", show_preview=False)
+                                render_test_upload(prof_id, test_title, prof_dir, f"{test.get('id', '')}_{prof_id}", show_preview=True)
 
                             # Analyze missing ratings across profiles
                             col_a, col_b = st.columns([3, 1])
@@ -3365,7 +3490,21 @@ elif st.session_state.page == 'manage_tests':
                                                     save_analysis(prof_id_check, analysis_data)
                                                     analyzed += 1
                                                 else:
-                                                    errors.append(f"No rating returned for {prof_id_check}")
+                                                    try:
+                                                        keys = list(result.get('ratings', {}).keys())
+                                                    except Exception:
+                                                        keys = []
+                                                    errors.append(f"No rating returned for {prof_id_check} — response rating keys: {keys}")
+                                                    # Save full response for debugging
+                                                    try:
+                                                        import json, datetime, pathlib
+                                                        dump_dir = pathlib.Path("profile_analyses/backups")
+                                                        dump_dir.mkdir(parents=True, exist_ok=True)
+                                                        dump_file = dump_dir / f"{prof_id_check}_batch_response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                                                        dump_file.write_text(json.dumps(result, indent=2))
+                                                        print(f"Saved batch response to {dump_file}")
+                                                    except Exception as e:
+                                                        print(f"Failed to save batch response: {e}")
                                             else:
                                                 errors.append(f"No rating returned for {prof_id_check}")
 
