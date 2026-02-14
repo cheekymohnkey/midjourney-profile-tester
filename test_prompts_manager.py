@@ -32,7 +32,12 @@ def save_tests(tests: List[Dict]):
     storage.write_json(TEST_PROMPTS_FILE, tests)
 
 def add_test(title: str, prompt: str, section: str, params: str, 
-             status: str = 'current', version: str = 'v2') -> Dict:
+             status: str = 'current', version: str = 'v2',
+             analysis_spec_version: str = None,
+             taxonomy_version: str = None,
+             intent: str = None,
+             analysis_family: str = None,
+             rubric: Dict = None) -> Dict:
     """Add a new test prompt."""
     tests = load_tests()
     
@@ -50,6 +55,17 @@ def add_test(title: str, prompt: str, section: str, params: str,
         'version': version,
         'created_date': datetime.now().strftime('%Y-%m-%d')
     }
+    # Optional new metadata
+    if analysis_spec_version:
+        new_test['analysis_spec_version'] = analysis_spec_version
+    if taxonomy_version:
+        new_test['taxonomy_version'] = taxonomy_version
+    if intent:
+        new_test['intent'] = intent
+    if analysis_family:
+        new_test['analysis_family'] = analysis_family
+    if rubric:
+        new_test['rubric'] = rubric
     
     tests.append(new_test)
     save_tests(tests)

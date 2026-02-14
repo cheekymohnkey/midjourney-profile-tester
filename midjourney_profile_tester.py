@@ -3228,6 +3228,48 @@ elif st.session_state.page == 'manage_tests':
                 st.markdown(f"**Parameters:** `{test.get('params', 'N/A')}`")
                 st.markdown(f"**Created:** {test.get('created_date', 'N/A')}")
 
+                # Show Metadata and Rubric for this test (moved out of Prompts expander)
+                st.markdown("---")
+                with st.expander("Metadata & Rubric", expanded=False):
+                    asv = test.get('analysis_spec_version', '')
+                    tv = test.get('taxonomy_version', '')
+                    intent = test.get('intent', '')
+                    af = test.get('analysis_family', '')
+                    if asv:
+                        st.markdown(f"- **Analysis Spec Version:** {asv}")
+                    if tv:
+                        st.markdown(f"- **Taxonomy Version:** {tv}")
+                    if intent:
+                        st.markdown(f"- **Intent:** {intent}")
+                    if af:
+                        st.markdown(f"- **Analysis Family:** {af}")
+
+                    rubric = test.get('rubric', {}) or {}
+                    if rubric:
+                        must = rubric.get('must', [])
+                        avoid = rubric.get('avoid', [])
+                        prefer = rubric.get('prefer', [])
+                        weights = rubric.get('weights', {})
+                        notes = rubric.get('notes', '')
+
+                        if must:
+                            st.markdown("**Rubric — MUST**")
+                            for item in must:
+                                st.markdown(f"- {item}")
+                        if avoid:
+                            st.markdown("**Rubric — AVOID**")
+                            for item in avoid:
+                                st.markdown(f"- {item}")
+                        if prefer:
+                            st.markdown("**Rubric — PREFER**")
+                            for item in prefer:
+                                st.markdown(f"- {item}")
+
+                        if weights:
+                            st.markdown(f"**Weights:** must={weights.get('must')}, avoid={weights.get('avoid')}, prefer={weights.get('prefer')}")
+                        if notes:
+                            st.markdown(f"**Notes:** {notes}")
+
                 # Show profile analysis for this test
                 st.markdown("---")
                 debug_log.append(f"[{time.time() - start_time:.2f}s]   Entering Profile Analyses expander for test: {test.get('title', 'Untitled')}")
@@ -3631,6 +3673,7 @@ elif st.session_state.page == 'manage_tests':
                             key=f"prompts_{test.get('id', '')}",
                             help="Copy these prompts to run in MidJourney"
                         )
+                        # Metadata & rubric are displayed in the main test expander above
                     else:
                         st.warning("Test prompt missing")
 
@@ -3646,6 +3689,20 @@ elif st.session_state.page == 'manage_tests':
             new_prompt = st.text_area("Prompt", height=100, placeholder="A moody foggy forest at dawn...")
             new_params = st.text_input("Parameters", value="--ar 16:9 --stylize 1000", placeholder="--ar 16:9 --stylize 1000")
             new_version = st.selectbox("Version", ["v1", "v2", "v3"])
+            # New metadata fields
+            new_analysis_spec_version = st.text_input("Analysis Spec Version", value="tests_v1")
+            new_taxonomy_version = st.text_input("Taxonomy Version", value="fm_v1")
+            new_intent = st.text_input("Intent", value="")
+            new_analysis_family = st.text_input("Analysis Family", value="")
+
+            # Rubric inputs (simple multi-line fields)
+            new_must = st.text_area("Rubric - MUST (one per line)", value="", height=100)
+            new_avoid = st.text_area("Rubric - AVOID (one per line)", value="", height=100)
+            new_prefer = st.text_area("Rubric - PREFER (one per line)", value="", height=100)
+            new_w_must = st.number_input("Weight - must", value=0.6, step=0.05, format="%.2f")
+            new_w_avoid = st.number_input("Weight - avoid", value=0.25, step=0.05, format="%.2f")
+            new_w_prefer = st.number_input("Weight - prefer", value=0.15, step=0.05, format="%.2f")
+            new_rubric_notes = st.text_area("Rubric Notes", value="", height=60)
             
             submitted = st.form_submit_button("➕ Add Test", type="primary")
             
@@ -3661,12 +3718,26 @@ elif st.session_state.page == 'manage_tests':
                         st.error(f"❌ Test ID '{test_id}' already exists. Choose a different title.")
                     else:
                         try:
+                            # Build rubric dict
+                            rubric_obj = {
+                                'must': [s.strip() for s in new_must.splitlines() if s.strip()],
+                                'avoid': [s.strip() for s in new_avoid.splitlines() if s.strip()],
+                                'prefer': [s.strip() for s in new_prefer.splitlines() if s.strip()],
+                                'weights': {'must': float(new_w_must), 'avoid': float(new_w_avoid), 'prefer': float(new_w_prefer)},
+                                'notes': new_rubric_notes
+                            }
+
                             tpm.add_test(
                                 title=new_title,
                                 prompt=new_prompt,
                                 section=new_section,
                                 params=new_params,
-                                version=new_version
+                                version=new_version,
+                                analysis_spec_version=new_analysis_spec_version,
+                                taxonomy_version=new_taxonomy_version,
+                                intent=new_intent,
+                                analysis_family=new_analysis_family,
+                                rubric=rubric_obj
                             )
                             st.success(f"✅ Added test: {new_title}")
                             st.rerun()
@@ -3692,6 +3763,11 @@ elif st.session_state.page == 'manage_tests':
                 edit_params = st.text_input("Parameters", value=selected_test.get('params', ''))
                 # Show GUID for this test (read-only)
                 st.markdown(f"**GUID:** `{selected_test.get('guid', '(none)')}`")
+                # New metadata fields
+                edit_analysis_spec_version = st.text_input("Analysis Spec Version", value=selected_test.get('analysis_spec_version', ''))
+                edit_taxonomy_version = st.text_input("Taxonomy Version", value=selected_test.get('taxonomy_version', ''))
+                edit_intent = st.text_input("Intent", value=selected_test.get('intent', ''))
+                edit_analysis_family = st.text_input("Analysis Family", value=selected_test.get('analysis_family', ''))
                 
                 # Safely get version index
                 test_version = selected_test.get('version', 'v2')
@@ -3703,14 +3779,50 @@ elif st.session_state.page == 'manage_tests':
                 edit_version = st.selectbox("Version", ["v1", "v2", "v3"], index=version_index)
                 edit_status = st.selectbox("Status", ["current", "archived"], index=0 if selected_test.get('status') == 'current' else 1)
                 
+                # Build rubric structure from editable fields (rendered in form)
+                existing_rubric = selected_test.get('rubric', {}) or {}
+                must_list = existing_rubric.get('must', [])
+                avoid_list = existing_rubric.get('avoid', [])
+                prefer_list = existing_rubric.get('prefer', [])
+                weights = existing_rubric.get('weights', {})
+                notes_val = existing_rubric.get('notes', '')
+
+                # Editable list fields as multi-line textareas
+                must_text = st.text_area("Rubric - MUST (one per line)", value="\n".join(must_list), height=120)
+                avoid_text = st.text_area("Rubric - AVOID (one per line)", value="\n".join(avoid_list), height=120)
+                prefer_text = st.text_area("Rubric - PREFER (one per line)", value="\n".join(prefer_list), height=120)
+
+                # Weights
+                w_must = st.number_input("Weight - must", value=float(weights.get('must', 0.6)), step=0.05, format="%.2f")
+                w_avoid = st.number_input("Weight - avoid", value=float(weights.get('avoid', 0.25)), step=0.05, format="%.2f")
+                w_prefer = st.number_input("Weight - prefer", value=float(weights.get('prefer', 0.15)), step=0.05, format="%.2f")
+                notes = st.text_area("Rubric Notes", value=notes_val, height=80)
+
                 col1, col2 = st.columns([1, 1])
                 with col1:
                     update_btn = st.form_submit_button("💾 Update Test", type="primary")
                 with col2:
                     duplicate_btn = st.form_submit_button("📋 Duplicate Test")
-                
+
                 if update_btn:
                     try:
+                        # Parse lists back
+                        new_must = [s.strip() for s in must_text.splitlines() if s.strip()]
+                        new_avoid = [s.strip() for s in avoid_text.splitlines() if s.strip()]
+                        new_prefer = [s.strip() for s in prefer_text.splitlines() if s.strip()]
+
+                        new_rubric = {
+                            'must': new_must,
+                            'avoid': new_avoid,
+                            'prefer': new_prefer,
+                            'weights': {
+                                'must': float(w_must),
+                                'avoid': float(w_avoid),
+                                'prefer': float(w_prefer)
+                            },
+                            'notes': notes
+                        }
+
                         tpm.update_test(
                             test_id=selected_test['id'],
                             title=edit_title,
@@ -3718,7 +3830,12 @@ elif st.session_state.page == 'manage_tests':
                             section=edit_section,
                             params=edit_params,
                             version=edit_version,
-                            status=edit_status
+                            status=edit_status,
+                            analysis_spec_version=edit_analysis_spec_version,
+                            taxonomy_version=edit_taxonomy_version,
+                            intent=edit_intent,
+                            analysis_family=edit_analysis_family,
+                            rubric=new_rubric
                         )
                         # If the title changed, rename existing image files to match new test filename pattern
                         old_title = selected_test.get('title', '')
@@ -3860,64 +3977,32 @@ elif st.session_state.page == 'manage_tests':
         with col1:
             export_status = st.selectbox("Export Status", ["current", "archived", "all"], key="export_status")
         with col2:
-            export_format = st.selectbox("Format", ["JSON", "CSV"])
+            st.markdown("Format: **JSON only**")
         
         if st.button("📥 Download Tests", type="primary"):
             export_tests = tests
             if export_status != "all":
                 export_tests = [t for t in tests if t.get('status') == export_status]
             
-            if export_format == "JSON":
-                import json
-                json_str = json.dumps(export_tests, indent=2)
-                st.download_button(
-                    label="💾 Download JSON",
-                    data=json_str,
-                    file_name=f"test_prompts_{export_status}.json",
-                    mime="application/json"
-                )
-            else:  # CSV
-                import pandas as pd
-                df = pd.DataFrame(export_tests)
-                csv_str = df.to_csv(index=False)
-                st.download_button(
-                    label="💾 Download CSV",
-                    data=csv_str,
-                    file_name=f"test_prompts_{export_status}.csv",
-                    mime="text/csv"
-                )
+            import json
+            json_str = json.dumps(export_tests, indent=2)
+            st.download_button(
+                label="💾 Download JSON",
+                data=json_str,
+                file_name=f"test_prompts_{export_status}.json",
+                mime="application/json"
+            )
         
         st.markdown("---")
         
         # Import
         st.markdown("### 📥 Import Tests")
-        uploaded_file = st.file_uploader("Upload JSON or CSV file", type=["json", "csv"])
-        
+        uploaded_file = st.file_uploader("Upload JSON file", type=["json"])
+
         if uploaded_file:
             try:
-                if uploaded_file.name.endswith('.json'):
-                    import json
-                    imported_tests = json.load(uploaded_file)
-                else:  # CSV
-                    import pandas as pd
-                    df = pd.read_csv(uploaded_file)
-                    
-                    # Handle different CSV formats (old Google Sheets format vs new format)
-                    # Old format: Section, Title, Prompt, Parameter Category, Parameter Values
-                    # New format: section, title, prompt, params, status, version, created_date
-                    
-                    # Normalize column names
-                    df_normalized = df.copy()
-                    column_mapping = {
-                        'Title': 'title',
-                        'Prompt': 'prompt',
-                        'Section': 'section',
-                        'Parameter Values': 'params',
-                        'Parameter Category': 'param_category'  # We'll ignore this
-                    }
-                    df_normalized = df_normalized.rename(columns=column_mapping)
-                    
-                    imported_tests = df_normalized.to_dict('records')
+                import json
+                imported_tests = json.load(uploaded_file)
                 
                 st.info(f"Found {len(imported_tests)} tests in file")
                 
