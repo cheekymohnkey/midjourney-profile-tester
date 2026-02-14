@@ -14,6 +14,8 @@ import hashlib
 import test_prompts_manager as tpm
 from dotenv import load_dotenv
 from storage import get_storage
+from services.analysis import score_v1_from_checks
+from services.image_utils import embed_image_data
 import json
 from streamlit_sortables import sort_items
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -251,6 +253,20 @@ def get_profile_completion_data(profile_list, test_names_tuple, test_count):
 def load_image_cached(image_path_str):
     """Load and cache image for 5 minutes. Limits to 100 images in cache."""
     return load_image(image_path_str)
+
+
+# UI helper: set session-state flags after an AI rating completes
+def _set_ai_rated_session_flags(test_name: str, message: str | None = None):
+    """Set Streamlit session_state flags used by the UI after an AI rating.
+
+    - `just_ai_rated_{test_name}` is set to True so UI expanders stay open.
+    - `ai_rated_message_{test_name}` is set to a short success message.
+
+    Centralized and unit-testable helper.
+    """
+    import streamlit as st
+    st.session_state[f'just_ai_rated_{test_name}'] = True
+    st.session_state[f'ai_rated_message_{test_name}'] = message or f"✨ AI rating completed for {test_name}"
 
 # Helper function to load tests as DataFrame
 def load_tests_df(status_filter='current'):
@@ -546,10 +562,8 @@ def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_
                     new_size = tuple(int(dim * ratio) for dim in img.size)
                     img = img.resize(new_size, Image.Resampling.LANCZOS)
                 
-                # Convert to JPEG
-                buffer = BytesIO()
-                img.convert('RGB').save(buffer, format='JPEG', quality=85)
-                img_data = base64.b64encode(buffer.getvalue()).decode()
+                # Convert to JPEG and embed inline (shared helper)
+                img_data = embed_image_data(img, fp)
                 
                 # Add image with label
                 message_content.append({
@@ -577,10 +591,8 @@ def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_
                 new_size = tuple(int(dim * ratio) for dim in img.size)
                 img = img.resize(new_size, Image.Resampling.LANCZOS)
             
-            # Convert to JPEG to reduce size (PNG can be huge)
-            buffer = BytesIO()
-            img.convert('RGB').save(buffer, format='JPEG', quality=85)
-            img_data = base64.b64encode(buffer.getvalue()).decode()
+            # Convert to JPEG and embed inline (shared helper)
+            img_data = embed_image_data(img, filepath)
             
             # Add test context
             message_content.append({
@@ -623,31 +635,45 @@ IMPORTANT: Use the actual test names (e.g., "{example_test_name}") as the keys i
 Respond with ONLY the JSON, no other text."""
     })
     
-    # Call OpenAI API
+    # Call OpenAI API (centralized via services.ai_client)
     try:
-        response = client.chat.completions.create(
+        from services.ai_client import chat_completion_parse_json
+        parsed, response_text, response_obj = chat_completion_parse_json(
+            client=client,
+            messages=[{"role": "user", "content": message_content}],
             model="gpt-5.2",
-            messages=[
-                {
-                    "role": "user",
-                    "content": message_content
-                }
-            ],
-            max_completion_tokens=4000,
-            temperature=0.7
+            temperature=0.7,
+            max_tokens=4000,
         )
-        
-        # Parse response
-        response_text = response.choices[0].message.content.strip()
-        
-        # Extract JSON from response (handle code blocks)
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
-        
-        import json
-        result = json.loads(response_text)
+        result = parsed
+        if result is None:
+            # Write a debug dump and surface an error (preserve previous behavior)
+            try:
+                dump_dir = pathlib.Path("profile_analyses/backups")
+                dump_dir.mkdir(parents=True, exist_ok=True)
+                dump_file = dump_dir / f"{profile_id or 'baseline'}_bad_response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                try:
+                    prompt_preview = (message_content if isinstance(message_content, str) else str(message_content))[:4000]
+                except Exception:
+                    prompt_preview = ''
+                resp_repr = None
+                try:
+                    resp_repr = str(response_obj)[:5000] if response_obj is not None else None
+                except Exception:
+                    resp_repr = None
+                dump_payload = {
+                    "test": "batch",
+                    "profile": profile_id,
+                    "prompt_preview": prompt_preview,
+                    "response_text": response_text,
+                    "response_object": resp_repr
+                }
+                dump_file.write_text(json.dumps(dump_payload, indent=2))
+                logger.error("Failed to parse JSON response for batch; dump written to %s", str(dump_file))
+                st.error(f"❌ OpenAI returned non-JSON response for batch. Saved debug dump: {dump_file.name}")
+            except Exception:
+                logger.exception("Failed to write bad-response dump for batch")
+            return None
         
         # Fix test names: remove "Test N: " prefix OR map "Test N" to actual test name
         import re
@@ -669,7 +695,28 @@ Respond with ONLY the JSON, no other text."""
                     clean_key = key
                 fixed_ratings[clean_key] = value
             result['ratings'] = fixed_ratings
-        
+
+            # Apply deterministic V1 scoring to each returned rating when checks are present
+            try:
+                for name, r in result.get('ratings', {}).items():
+                    try:
+                        if isinstance(r, dict) and isinstance(r.get('checks'), dict):
+                            v1 = score_v1_from_checks(r.get('checks'), r.get('weights', {}))
+                            r['score'] = round(float(v1['score_0_10']), 2)
+                            r['affinity'] = v1['affinity']
+                            r['metrics_v1'] = {
+                                'must_pass_rate': round(float(v1['must_pass_rate']), 3),
+                                'avoid_clean_rate': round(float(v1['avoid_clean_rate']), 3),
+                                'prefer_rate': round(float(v1['prefer_rate']), 3),
+                                'counts': v1['counts'],
+                                'weights': r.get('weights', {}),
+                                'scoring_version': 'v1_group_weighted'
+                            }
+                    except Exception:
+                        logger.exception("Failed to apply deterministic scoring for rating %s", name)
+            except Exception:
+                logger.exception("Failed to compute deterministic V1 metrics for batch results")
+
         return result
     
     except Exception as e:
@@ -699,8 +746,9 @@ def finalize_profile_summary(profile_id, analysis_data):
     
     # Ask AI to generate final profile summary
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        from services.ai_client import chat_completion_parse_json
+        parsed, response_text, response_obj = chat_completion_parse_json(
+            client=client,
             messages=[
                 {
                     "role": "system",
@@ -726,13 +774,13 @@ Return as JSON:
 ```"""
                 }
             ],
-            temperature=0.7
+            model="gpt-4o-mini",
+            temperature=0.7,
+            max_tokens=1500,
         )
-        
-        # Parse response
-        response_text = response.choices[0].message.content.strip()
-        
-        # Extract JSON
+        if parsed is None:
+            raise ValueError("Failed to parse JSON from finalize_profile_summary response")
+        result = parsed
         if "```json" in response_text:
             response_text = response_text.split("```json")[1].split("```")[0].strip()
         elif "```" in response_text:
@@ -2148,7 +2196,7 @@ elif st.session_state.page == 'rate':
                             "Consistency Score",
                             min_value=1,
                             max_value=10,
-                            value=existing_rating.get('score', 5),
+                            value=int(existing_rating.get('score', 5)),
                             key=f"score_{test_name}",
                             help="How consistent are the visual patterns across all images? 1 = Random/chaotic, 10 = Strong consistent signature"
                         )
@@ -2160,7 +2208,7 @@ elif st.session_state.page == 'rate':
                                 "Photographic Strength",
                                 min_value=1,
                                 max_value=10,
-                                value=existing_rating.get('rendering_style', 5),
+                                value=int(existing_rating.get('rendering_style', 5)),
                                 key=f"rendering_{test_name}",
                                 help="How photographic are the results? 1 = Painterly/abstract | 10 = Sharp photographic realism"
                             )
@@ -2170,7 +2218,7 @@ elif st.session_state.page == 'rate':
                                 "Artistic Strength",
                                 min_value=1,
                                 max_value=10,
-                                value=existing_rating.get('rendering_style', 5),
+                                value=int(existing_rating.get('rendering_style', 5)),
                                 key=f"rendering_{test_name}",
                                 help="How painterly/artistic are the results? 1 = Photographic/realistic | 10 = Strong painterly/abstract"
                             )
@@ -2381,7 +2429,7 @@ elif st.session_state.page == 'rate':
                             "Style Resemblance Score",
                             min_value=1,
                             max_value=10,
-                            value=existing_rating.get('score', 5),
+                            value=int(existing_rating.get('score', 5)),
                             key=f"score_{test_name}",
                             help="Style match only (not content accuracy): 1 = Poor style match, 10 = Perfect style match"
                         )
@@ -2462,8 +2510,7 @@ elif st.session_state.page == 'rate':
                                                 analysis_data['ratings'][test_name] = result['ratings'][test_name]
                                                 save_analysis(display_profile_id, analysis_data)
                                                 # Set flag to keep expander open after AI rating
-                                                st.session_state[f'just_ai_rated_{test_name}'] = True
-                                                st.session_state[f'ai_rated_message_{test_name}'] = f"✨ AI rating completed for {test_name}"
+                                                _set_ai_rated_session_flags(test_name)
                                                 import time
                                                 time.sleep(0.3)
                                                 st.rerun()
@@ -2639,8 +2686,9 @@ elif st.session_state.page == 'assess':
 Be thorough and specific in your analysis."""
                 
                 try:
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
+                    from services.ai_client import chat_completion_to_text
+                    analysis_text, response = chat_completion_to_text(
+                        client=client,
                         messages=[
                             {
                                 "role": "user",
@@ -2656,10 +2704,10 @@ Be thorough and specific in your analysis."""
                                 ]
                             }
                         ],
-                        max_tokens=1500
+                        model="gpt-4o-mini",
+                        temperature=0.7,
+                        max_tokens=1500,
                     )
-                    
-                    analysis_text = response.choices[0].message.content
                     
                     # Display analysis
                     st.markdown("---")

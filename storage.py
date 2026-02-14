@@ -55,6 +55,13 @@ class StorageBackend:
         """Ensure directory exists (no-op for S3)."""
         pass
 
+    def generate_presigned_url(self, path: str, expires: int = 3600) -> str:
+        """Return a presigned GET URL for the given path if backend supports it.
+
+        Default implementation raises NotImplementedError; backends may override.
+        """
+        raise NotImplementedError()
+
 
 class LocalStorage(StorageBackend):
     """Local filesystem storage backend."""
@@ -119,6 +126,10 @@ class LocalStorage(StorageBackend):
     def ensure_directory(self, path: str) -> None:
         dir_path = self._resolve_path(path)
         dir_path.mkdir(parents=True, exist_ok=True)
+
+    def generate_presigned_url(self, path: str, expires: int = 3600) -> Optional[str]:
+        """Local storage does not support presigned URLs; return None so callers can fallback."""
+        return None
 
 
 class S3Storage(StorageBackend):
@@ -204,6 +215,22 @@ class S3Storage(StorageBackend):
             Body=buffer.getvalue(),
             ContentType=content_type
         )
+
+    def generate_presigned_url(self, path: str, expires: int = 3600) -> Optional[str]:
+        """Generate a presigned GET URL for an object stored in S3.
+
+        Returns None on failure.
+        """
+        try:
+            key = self._get_key(path)
+            url = self.s3.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': self.bucket_name, 'Key': key},
+                ExpiresIn=expires
+            )
+            return url
+        except Exception:
+            return None
     
     def exists(self, path: str) -> bool:
         try:

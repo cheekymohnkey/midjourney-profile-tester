@@ -26,7 +26,8 @@ TEST_PROMPTS_FILE = 'test_prompts.json'
 
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-5.2')
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-5-mini')
+OPENAI_TEMPERATURE = float(os.getenv('OPENAI_TEMPERATURE', '1.0'))
 
 # Image Processing Settings
 MAX_IMAGE_SIZE = 1024  # Max dimension for test images
