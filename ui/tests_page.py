@@ -526,3 +526,362 @@ def render_tests_page(
             new_prompt = st.text_area("Prompt", height=100, placeholder="A moody foggy forest at dawn...")
             new_params = st.text_input("Parameters", value="--ar 16:9 --stylize 1000", placeholder="--ar 16:9 --stylize 1000")
             new_version = st.selectbox("Version", ["v1", "v2", "v3"])
+            # New metadata fields
+            new_analysis_spec_version = st.text_input("Analysis Spec Version", value="tests_v1")
+            new_taxonomy_version = st.text_input("Taxonomy Version", value="fm_v1")
+            new_intent = st.text_input("Intent", value="")
+            new_analysis_family = st.text_input("Analysis Family", value="")
+
+            # Rubric inputs (simple multi-line fields)
+            new_must = st.text_area("Rubric - MUST (one per line)", value="", height=100)
+            new_avoid = st.text_area("Rubric - AVOID (one per line)", value="", height=100)
+            new_prefer = st.text_area("Rubric - PREFER (one per line)", value="", height=100)
+            new_w_must = st.number_input("Weight - must", value=0.6, step=0.05, format="%.2f")
+            new_w_avoid = st.number_input("Weight - avoid", value=0.25, step=0.05, format="%.2f")
+            new_w_prefer = st.number_input("Weight - prefer", value=0.15, step=0.05, format="%.2f")
+            new_rubric_notes = st.text_area("Rubric Notes", value="", height=60)
+            
+            submitted = st.form_submit_button("➕ Add Test", type="primary")
+            
+            if submitted:
+                if not new_title or not new_prompt:
+                    st.error("❌ Title and Prompt are required")
+                else:
+                    # Create test ID from title
+                    test_id = f"{new_section}_{new_title.replace(' ', '_')}"
+                    
+                    # Check if ID already exists
+                    if any(t.get('id') == test_id for t in tests):
+                        st.error(f"❌ Test ID '{test_id}' already exists. Choose a different title.")
+                    else:
+                        try:
+                            # Build rubric dict
+                            rubric_obj = {
+                                'must': [s.strip() for s in new_must.splitlines() if s.strip()],
+                                'avoid': [s.strip() for s in new_avoid.splitlines() if s.strip()],
+                                'prefer': [s.strip() for s in new_prefer.splitlines() if s.strip()],
+                                'weights': {'must': float(new_w_must), 'avoid': float(new_w_avoid), 'prefer': float(new_w_prefer)},
+                                'notes': new_rubric_notes
+                            }
+
+                            tpm.add_test(
+                                title=new_title,
+                                prompt=new_prompt,
+                                section=new_section,
+                                params=new_params,
+                                version=new_version,
+                                analysis_spec_version=new_analysis_spec_version,
+                                taxonomy_version=new_taxonomy_version,
+                                intent=new_intent,
+                                analysis_family=new_analysis_family,
+                                rubric=rubric_obj
+                            )
+                            st.success(f"✅ Added test: {new_title}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error adding test: {e}")
+    
+    with test_tabs[2]:  # Edit Test
+        st.subheader("Edit Existing Test")
+        
+        # Select test to edit
+        test_titles = [f"{t.get('section', 'N/A')} | {t.get('title', 'Untitled')}" for t in tests]
+        if test_titles:
+            selected_test_idx = st.selectbox("Select Test", range(len(test_titles)), format_func=lambda i: test_titles[i])
+            selected_test = tests[selected_test_idx]
+            
+            with st.form("edit_test_form"):
+                edit_title = st.text_input("Title", value=selected_test.get('title', ''))
+                sections = ["PHOTO", "ART", "VOID_PHOTO", "VOID_ART"]
+                current_section = selected_test.get('section', 'PHOTO')
+                section_index = sections.index(current_section) if current_section in sections else 0
+                edit_section = st.selectbox("Section", sections, index=section_index)
+                edit_prompt = st.text_area("Prompt", value=selected_test.get('prompt', ''), height=100)
+                edit_params = st.text_input("Parameters", value=selected_test.get('params', ''))
+                # Show GUID for this test (read-only)
+                st.markdown(f"**GUID:** `{selected_test.get('guid', '(none)')}`")
+                # New metadata fields
+                edit_analysis_spec_version = st.text_input("Analysis Spec Version", value=selected_test.get('analysis_spec_version', ''))
+                edit_taxonomy_version = st.text_input("Taxonomy Version", value=selected_test.get('taxonomy_version', ''))
+                edit_intent = st.text_input("Intent", value=selected_test.get('intent', ''))
+                edit_analysis_family = st.text_input("Analysis Family", value=selected_test.get('analysis_family', ''))
+                
+                # Safely get version index
+                test_version = selected_test.get('version', 'v2')
+                try:
+                    version_index = ["v1", "v2", "v3"].index(test_version)
+                except (ValueError, TypeError):
+                    version_index = 1  # Default to v2
+                
+                edit_version = st.selectbox("Version", ["v1", "v2", "v3"], index=version_index)
+                edit_status = st.selectbox("Status", ["current", "archived"], index=0 if selected_test.get('status') == 'current' else 1)
+                # Build rubric structure from editable fields (rendered in form)
+                existing_rubric = selected_test.get('rubric', {}) or {}
+                must_list = existing_rubric.get('must', [])
+                avoid_list = existing_rubric.get('avoid', [])
+                prefer_list = existing_rubric.get('prefer', [])
+                weights = existing_rubric.get('weights', {})
+                notes_val = existing_rubric.get('notes', '')
+
+                # Editable list fields as multi-line textareas
+                must_text = st.text_area("Rubric - MUST (one per line)", value="\n".join(must_list), height=120)
+                avoid_text = st.text_area("Rubric - AVOID (one per line)", value="\n".join(avoid_list), height=120)
+                prefer_text = st.text_area("Rubric - PREFER (one per line)", value="\n".join(prefer_list), height=120)
+                # Weights
+                w_must = st.number_input("Weight - must", value=float(weights.get('must', 0.6)), step=0.05, format="%.2f")
+                w_avoid = st.number_input("Weight - avoid", value=float(weights.get('avoid', 0.25)), step=0.05, format="%.2f")
+                w_prefer = st.number_input("Weight - prefer", value=float(weights.get('prefer', 0.15)), step=0.05, format="%.2f")
+                notes = st.text_area("Rubric Notes", value=notes_val, height=80)
+
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    update_btn = st.form_submit_button("💾 Update Test", type="primary")
+                with col2:
+                    duplicate_btn = st.form_submit_button("📋 Duplicate Test")
+
+                if update_btn:
+                    try:
+                        # Parse lists back
+                        new_must = [s.strip() for s in must_text.splitlines() if s.strip()]
+                        new_avoid = [s.strip() for s in avoid_text.splitlines() if s.strip()]
+                        new_prefer = [s.strip() for s in prefer_text.splitlines() if s.strip()]
+                        new_rubric = {
+                            'must': new_must,
+                            'avoid': new_avoid,
+                            'prefer': new_prefer,
+                            'weights': {
+                                'must': float(w_must),
+                                'avoid': float(w_avoid),
+                                'prefer': float(w_prefer)
+                            },
+                            'notes': notes
+                        }
+
+                        tpm.update_test(
+                            test_id=selected_test['id'],
+                            title=edit_title,
+                            prompt=edit_prompt,
+                            section=edit_section,
+                            params=edit_params,
+                            version=edit_version,
+                            status=edit_status,
+                            analysis_spec_version=edit_analysis_spec_version,
+                            taxonomy_version=edit_taxonomy_version,
+                            intent=edit_intent,
+                            analysis_family=edit_analysis_family,
+                            rubric=new_rubric
+                        )
+                        # If the title changed, rename existing image files to match new test filename pattern
+                        old_title = selected_test.get('title', '')
+                        if old_title and old_title != edit_title:
+                            old_safe = old_title.replace(' ', '_').replace('/', '_')
+                            new_safe = edit_title.replace(' ', '_').replace('/', '_')
+                            storage = get_storage()
+                            try:
+                                all_files = storage.list_files('profile_results', '*')
+                            except Exception:
+                                all_files = []
+                            moved = 0
+                            for fp in all_files:
+                                parts = fp.split('/')
+                                if len(parts) < 3:
+                                    continue
+                                prof = parts[1]
+                                filename = parts[2]
+                                filename_no_ext = filename.rsplit('.', 1)[0]
+                                if filename_no_ext.startswith(f"{prof}_{old_safe}"):
+                                    # Build new filename preserving extension
+                                    ext = filename.rsplit('.', 1)[1] if '.' in filename else 'jpg'
+                                    new_filename = filename.replace(f"{prof}_{old_safe}", f"{prof}_{new_safe}", 1)
+                                    old_path = fp
+                                    new_path = f"profile_results/{prof}/{new_filename}"
+                                    try:
+                                        data = storage.read_bytes(old_path)
+                                        storage.write_bytes(new_path, data)
+                                        storage.delete(old_path)
+                                        moved += 1
+                                    except Exception:
+                                        pass
+                            if moved:
+                                st.success(f"✅ Renamed {moved} image file(s) to match new test title")
+                        st.success(f"✅ Updated test: {edit_title}")
+
+                        # Show prompts for all profiles
+                        st.markdown("---")
+                        st.markdown("### 📝 Generate New Images for Updated Test")
+                        st.info("Copy these prompts to regenerate images for all profiles with this test:")
+                        # Get all profiles
+                        storage = get_storage()
+                        all_profile_dirs = storage.list_files("profile_results", "*")
+                        profile_ids = set()
+                        for file_path in all_profile_dirs:
+                            parts = file_path.split('/')
+                            if len(parts) >= 2:
+                                profile_ids.add(parts[1])
+
+                        # Build prompts for each profile
+                        all_prompts = []
+                        # Add baseline prompt (no profile)
+                        baseline_prompt = f"{edit_prompt} {edit_params}"
+                        all_prompts.append(f"# Baseline (no profile)\n{baseline_prompt}")
+                        # Add prompts for each profile
+                        for prof_id in sorted(profile_ids):
+                            if prof_id != 'baseline':
+                                profile_prompt = f"{edit_prompt} {edit_params} -p {prof_id}"
+                                all_prompts.append(f"# Profile: {prof_id}\n{profile_prompt}")
+                        # Display in text area for easy copying
+                        prompts_text = "\n\n".join(all_prompts)
+                        st.text_area(
+                            f"Prompts for '{edit_title}'",
+                            value=prompts_text,
+                            height=400,
+                            key=f"updated_prompts_{selected_test['id']}"
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error updating test: {e}")
+                
+                if duplicate_btn:
+                    try:
+                        # Auto-increment version for duplicate
+                        version_map = {'v1': 'v2', 'v2': 'v3', 'v3': 'v3'}
+                        new_version = version_map.get(edit_version, 'v2')
+                        
+                        tpm.duplicate_test(selected_test['id'], new_version=new_version)
+                        st.success(f"✅ Duplicated test as version {new_version}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error duplicating test: {e}")
+        else:
+            st.info("No tests available to edit")
+    
+    with test_tabs[3]:  # Archive
+        st.subheader("Archive Tests")
+        st.markdown("Archived tests are hidden from active use but preserved for reference.")
+        # Show current tests that can be archived
+        current_tests = [t for t in tests if t.get('status') == 'current']
+        
+        if current_tests:
+            for idx, test in enumerate(current_tests):
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"**{test.get('title', 'Untitled')}** ({test.get('version', 'v1')})")
+                with col2:
+                    if st.button("📦 Archive", key=f"archive_{idx}_{test.get('id', idx)}"):
+                        try:
+                            tpm.archive_test(test['id'])
+                            st.success(f"✅ Archived: {test.get('title')}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
+        else:
+            st.info("No current tests to archive")
+        
+        st.markdown("---")
+        
+        # Show archived tests that can be restored
+        archived_tests = [t for t in tests if t.get('status') == 'archived']
+        
+        if archived_tests:
+            st.subheader("Restore Archived Tests")
+            for idx, test in enumerate(archived_tests):
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"**{test.get('title', 'Untitled')}** ({test.get('version', 'v1')})")
+                with col2:
+                    if st.button("♻️ Restore", key=f"restore_{idx}_{test.get('id', idx)}"):
+                        try:
+                            tpm.update_test(test['id'], status='current')
+                            st.success(f"✅ Restored: {test.get('title')}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
+    
+    with test_tabs[4]:  # Import/Export
+        st.subheader("Import/Export Tests")
+        
+        # Export
+        st.markdown("### 📤 Export Tests")
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            export_status = st.selectbox("Export Status", ["current", "archived", "all"], key="export_status")
+        with col2:
+            st.markdown("Format: **JSON only**")
+        
+        if st.button("📥 Download Tests", type="primary"):
+            export_tests = tests
+            if export_status != "all":
+                export_tests = [t for t in tests if t.get('status') == export_status]
+            import json
+            json_str = json.dumps(export_tests, indent=2)
+            st.download_button(
+                label="💾 Download JSON",
+                data=json_str,
+                file_name=f"test_prompts_{export_status}.json",
+                mime="application/json"
+            )
+        
+        st.markdown("---")
+        
+        # Import
+        st.markdown("### 📥 Import Tests")
+        uploaded_file = st.file_uploader("Upload JSON file", type=["json"])
+
+        if uploaded_file:
+            try:
+                import json
+                imported_tests = json.load(uploaded_file)
+                
+                st.info(f"Found {len(imported_tests)} tests in file")
+                
+                # Show preview of what will be imported
+                with st.expander("📋 Preview First 3 Tests"):
+                    for i, test in enumerate(imported_tests[:3], 1):
+                        st.markdown(f"**{i}. {test.get('title', test.get('Title', 'Untitled'))}**")
+                        st.markdown(f"- Section: {test.get('section', test.get('Section', 'N/A'))}")
+                        st.markdown(f"- Prompt: {test.get('prompt', test.get('Prompt', 'N/A'))[:80]}...")
+                        st.markdown(f"- Params: {test.get('params', test.get('Parameter Values', 'N/A'))}")
+                if st.button("➕ Import Tests", type="primary"):
+                    added = 0
+                    errors = []
+                    
+                    for test in imported_tests:
+                        try:
+                            # Get values with fallbacks for different formats
+                            title = test.get('title', test.get('Title', 'Imported Test'))
+                            prompt = test.get('prompt', test.get('Prompt', ''))
+                            section = test.get('section', test.get('Section', 'PHOTO'))
+                            params = test.get('params', test.get('Parameter Values', ''))
+                            version = test.get('version', 'v1')  # Default to v1 for old imports
+                            status = test.get('status', 'current')
+                            
+                            # Skip if no title or prompt
+                            if not title or not prompt:
+                                errors.append(f"Skipped test with missing title or prompt")
+                                continue
+                            
+                            # Generate test ID
+                            test_id = f"{section}_{title.replace(' ', '_').replace('/', '_')}"
+                            # Check if test ID already exists
+                            if not any(t.get('id') == test_id for t in tests):
+                                tpm.add_test(
+                                    title=title,
+                                    prompt=prompt,
+                                    section=section,
+                                    params=params,
+                                    version=version,
+                                    status=status
+                                )
+                                added += 1
+                            else:
+                                errors.append(f"Skipped duplicate: {test_id}")
+                        except Exception as e:
+                            errors.append(f"Error importing {title}: {e}")
+                    
+                    st.success(f"✅ Imported {added} tests")
+                    if errors:
+                        st.warning(f"⚠️ {len(errors)} errors:\n" + "\n".join(errors[:5]))
+                    st.rerun()
+            
+            except Exception as e:
+                st.error(f"❌ Error reading file: {e}")
