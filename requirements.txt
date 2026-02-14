@@ -6,3 +6,5 @@ requests>=2.31.0
 st_img_pastebutton>=0.0.5
 boto3>=1.28.0
 streamlit-sortables>=0.3.0
+# Playwright end-to-end test dependencies
+playwright>=1.40.0
