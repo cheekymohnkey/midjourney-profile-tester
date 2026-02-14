@@ -3220,3 +3220,4 @@ elif st.session_state.page == 'manage_tests':
         get_profile_image_files=get_profile_image_files,
         count_profile_images=count_profile_images,
         filter_seed_from_params=filter_seed_from_params,
+    )
