@@ -46,3 +46,55 @@ def test_chat_completion_to_text_returns_text():
     client = FakeClient('plain text output')
     text, obj = chat_completion_to_text(client, messages=[{"role": "user", "content": "x"}], model="m")
     assert 'plain text output' in text
+
+
+def test_chat_completion_parse_json_accepts_max_completion_tokens_in_kwargs():
+    # Recorder that captures kwargs passed to the create() call
+    class RecorderCompletions:
+        def __init__(self, content):
+            self._content = content
+            self.last_kwargs = None
+
+        def create(self, *args, **kwargs):
+            self.last_kwargs = kwargs
+            return DummyResponse(self._content)
+
+    class RecorderClient:
+        def __init__(self, content):
+            self.chat = type('C', (), {'completions': RecorderCompletions(content)})
+
+    client = RecorderClient('{"ratings": {}}')
+
+    # Pass max_completion_tokens via kwargs to ensure no duplicate-key error
+    parsed, resp_text, resp_obj = chat_completion_parse_json(client, messages=[{"role": "user", "content": "x"}], max_completion_tokens=1234)
+
+    # Ensure the recorder saw the value
+    assert client.chat.completions.last_kwargs is not None
+    assert client.chat.completions.last_kwargs.get('max_completion_tokens') == 1234
+    assert isinstance(parsed, dict) or parsed is None
+
+
+def test_chat_completion_parse_json_accepts_legacy_max_tokens_key():
+    # Recorder that captures kwargs passed to the create() call
+    class RecorderCompletions:
+        def __init__(self, content):
+            self._content = content
+            self.last_kwargs = None
+
+        def create(self, *args, **kwargs):
+            self.last_kwargs = kwargs
+            return DummyResponse(self._content)
+
+    class RecorderClient:
+        def __init__(self, content):
+            self.chat = type('C', (), {'completions': RecorderCompletions(content)})
+
+    client = RecorderClient('{"ratings": {}}')
+
+    # Pass legacy `max_tokens` via kwargs to ensure it's accepted and translated
+    parsed, resp_text, resp_obj = chat_completion_parse_json(client, messages=[{"role": "user", "content": "x"}], max_tokens=2222)
+
+    assert client.chat.completions.last_kwargs is not None
+    # The underlying call should receive `max_completion_tokens` (translated)
+    assert client.chat.completions.last_kwargs.get('max_completion_tokens') == 2222
+    assert isinstance(parsed, dict) or parsed is None

@@ -77,20 +77,25 @@ def chat_completion_to_text(
     client: Any,
     messages: Any,
     *,
-    model: str = "gpt-4o-mini",
-    temperature: float = 0.7,
-    max_tokens: int = 1500,
+    model: str = "gpt-5-mini",
+    max_completion_tokens: int = 4000,
     **kwargs,
 ) -> Tuple[str, Any]:
     """Call the provided OpenAI client and return (response_text, response_obj).
 
     `client` should expose `chat.completions.create(...)` API.
+
+    Defensive behaviour: if the caller passed `max_completion_tokens` inside `kwargs`,
+    prefer that value and avoid passing the same keyword twice (which raises).
     """
+    # Prefer explicit kwargs if provided by the caller; accept either
+    # `max_completion_tokens` (newer parameter) or `max_tokens` (legacy).
+    effective_max = kwargs.pop('max_completion_tokens', kwargs.pop('max_tokens', max_completion_tokens))
+
     response_obj = client.chat.completions.create(
         model=model,
         messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
+        max_completion_tokens=effective_max,
         **kwargs,
     )
     text = _extract_text_from_response_obj(response_obj)
@@ -102,22 +107,25 @@ def chat_completion_parse_json(
     messages: Any,
     *,
     model: str = "gpt-5-mini",
-    temperature: float = 0.0,
-    max_tokens: int = 2000,
+    max_completion_tokens: int = 4000,
     **kwargs,
 ) -> Tuple[Optional[Any], str, Any]:
     """Call chat completion and attempt to parse JSON from the returned text.
 
     Returns a tuple: (parsed_json_or_None, response_text, response_obj).
     Does NOT raise on parse failure — caller can decide how to handle None.
+
+    Defensive behaviour: prefer `max_completion_tokens` from kwargs when present
+    and ensure we never pass the same keyword argument twice to the client.
     """
+    # Accept both `max_completion_tokens` and legacy `max_tokens` from kwargs.
+    effective_max = kwargs.pop('max_completion_tokens', kwargs.pop('max_tokens', max_completion_tokens))
+
     response_obj = client.chat.completions.create(
         model=model,
         messages=messages,
-        max_completion_tokens=max_tokens if 'max_completion_tokens' in kwargs else None,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        **{k: v for k, v in kwargs.items() if k != 'max_completion_tokens'},
+        max_completion_tokens=effective_max,
+        **kwargs,
     )
 
     response_text = _extract_text_from_response_obj(response_obj).strip()
