@@ -1813,7 +1813,7 @@ elif st.session_state.page == 'rate':
                 st.info(f"Found {len(uploaded_tests)} uploaded images: {len(already_rated_names)} already rated, {unrated_count} remaining")
                 
                 if len(uploaded_tests) == 0:
-                    st.warning("⚠️ No images uploaded. Please upload images in the Images tab first.")
+                    st.warning("⚠️ No images uploaded. You can upload images here on the Rate page or use the Images tab.")
                     if st.button("Close"):
                         st.session_state.show_auto_rate = False
                         st.rerun()
@@ -2155,15 +2155,16 @@ elif st.session_state.page == 'rate':
                     st.markdown(f"**{test_name} - {len(image_files)} unseeded images**")
                     st.caption("**Purpose:** Reveal pure profile bias with minimal prompt influence")
                     
-                    # Display images in rows of 4
-                    for i in range(0, len(image_files), 4):
+                    # Show image upload / previews in 2 rows of 4 using unified helper
+                    # This lets users upload/delete each void image directly from the Rate page.
+                    for row_start in range(1, 9, 4):
                         cols = st.columns(4)
-                        for j, col in enumerate(cols):
-                            if i + j < len(image_files):
-                                img_num, filepath = image_files[i + j]
-                                with col:
-                                    img_display = load_image_cached(str(filepath))
-                                    st.image(img_display, caption=f"#{img_num}", width='stretch')
+                        for offset, col in enumerate(cols):
+                            img_num = row_start + offset
+                            if img_num > 8:
+                                continue
+                            with col:
+                                render_test_upload(display_profile_id, test_name, output_dir, f"{idx}_{img_num}", image_num=img_num, show_preview=True)
                     
                     st.markdown("---")
                     st.info("💡 Rate based on **commonalities across all images**: What visual patterns, color palettes, lighting, or textures consistently emerge?")
@@ -2365,7 +2366,8 @@ elif st.session_state.page == 'rate':
                 
                 if not filepath:
                     with st.expander(f"📷 {test_name} - ⚠️ Image Not Uploaded"):
-                        st.info("Upload image in the Images tab first")
+                        # Allow upload/delete directly from the Rate page now
+                        render_test_upload(display_profile_id, test_name, output_dir, idx, show_preview=True)
                     continue
                 
                 # Load existing rating if available (support GUID keys and legacy title keys)
