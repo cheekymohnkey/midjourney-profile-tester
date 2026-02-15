@@ -509,9 +509,20 @@ def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_
     
     client = OpenAI(api_key=api_key)
     
-    # Filter out already-rated tests
+    # Filter out already-rated tests. Existing ratings may be stored under GUIDs
+    # or legacy title keys, so check both when deciding which tests remain unrated.
     if existing_ratings:
-        unrated_tests = [(name, path, row) for name, path, row in uploaded_tests if name not in existing_ratings]
+        unrated_tests = []
+        for name, path, row in uploaded_tests:
+            try:
+                test_obj = tpm.get_test_by_title(name)
+            except Exception:
+                test_obj = None
+            guid = test_obj.get('guid') if test_obj and test_obj.get('guid') else None
+            # Skip if either the title or the GUID is already present in existing_ratings
+            if name in existing_ratings or (guid and guid in existing_ratings):
+                continue
+            unrated_tests.append((name, path, row))
     else:
         unrated_tests = uploaded_tests
     
@@ -563,7 +574,7 @@ def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_
                     img = img.resize(new_size, Image.Resampling.LANCZOS)
                 
                 # Convert to JPEG and embed inline (shared helper)
-                img_data = embed_image_data(img, fp)
+                img_data = embed_image_data(img, filepath)
                 
                 # Add image with label
                 message_content.append({
@@ -638,12 +649,12 @@ Respond with ONLY the JSON, no other text."""
     # Call OpenAI API (centralized via services.ai_client)
     try:
         from services.ai_client import chat_completion_parse_json
+        from services.gpt_config import DEFAULT_MODEL, DEFAULT_MAX_COMPLETION_TOKENS
         parsed, response_text, response_obj = chat_completion_parse_json(
             client=client,
             messages=[{"role": "user", "content": message_content}],
-            model="gpt-5.2",
-            temperature=0.7,
-            max_tokens=4000,
+            model=DEFAULT_MODEL,
+            max_completion_tokens=DEFAULT_MAX_COMPLETION_TOKENS,
         )
         result = parsed
         if result is None:
@@ -747,6 +758,8 @@ def finalize_profile_summary(profile_id, analysis_data):
     # Ask AI to generate final profile summary
     try:
         from services.ai_client import chat_completion_parse_json
+        from services.gpt_config import DEFAULT_MODEL, DEFAULT_MAX_COMPLETION_TOKENS
+
         parsed, response_text, response_obj = chat_completion_parse_json(
             client=client,
             messages=[
@@ -774,9 +787,8 @@ Return as JSON:
 ```"""
                 }
             ],
-            model="gpt-4o-mini",
-            temperature=0.7,
-            max_tokens=1500,
+            model=DEFAULT_MODEL,
+            max_completion_tokens=DEFAULT_MAX_COMPLETION_TOKENS,
         )
         if parsed is None:
             raise ValueError("Failed to parse JSON from finalize_profile_summary response")
@@ -2689,6 +2701,7 @@ Be thorough and specific in your analysis."""
                 
                 try:
                     from services.ai_client import chat_completion_to_text
+                    from services.gpt_config import DEFAULT_MODEL, DEFAULT_MAX_COMPLETION_TOKENS
                     analysis_text, response = chat_completion_to_text(
                         client=client,
                         messages=[
@@ -2706,9 +2719,8 @@ Be thorough and specific in your analysis."""
                                 ]
                             }
                         ],
-                        model="gpt-4o-mini",
-                        temperature=0.7,
-                        max_tokens=1500,
+                        model=DEFAULT_MODEL,
+                        max_completion_tokens=DEFAULT_MAX_COMPLETION_TOKENS,
                     )
                     
                     # Display analysis

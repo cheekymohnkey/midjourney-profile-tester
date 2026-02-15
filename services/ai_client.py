@@ -3,6 +3,8 @@ import json
 import re
 from typing import Any, Dict, Optional, Tuple
 
+from services.gpt_config import DEFAULT_MODEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,7 +79,7 @@ def chat_completion_to_text(
     client: Any,
     messages: Any,
     *,
-    model: str = "gpt-5-mini",
+    model: str = DEFAULT_MODEL,
     max_completion_tokens: int = 4000,
     **kwargs,
 ) -> Tuple[str, Any]:
@@ -106,7 +108,7 @@ def chat_completion_parse_json(
     client: Any,
     messages: Any,
     *,
-    model: str = "gpt-5-mini",
+    model: str = DEFAULT_MODEL,
     max_completion_tokens: int = 4000,
     **kwargs,
 ) -> Tuple[Optional[Any], str, Any]:
