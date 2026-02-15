@@ -830,7 +830,12 @@ def render_tests_page(
         if uploaded_file:
             try:
                 import json
-                imported_tests = json.load(uploaded_file)
+                # Streamlit uploaded files are file-like; read bytes and decode safely.
+                raw = uploaded_file.read()
+                try:
+                    imported_tests = json.loads(raw.decode('utf-8'))
+                except Exception:
+                    imported_tests = json.loads(raw)
                 
                 st.info(f"Found {len(imported_tests)} tests in file")
                 

@@ -4,6 +4,7 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 from services.gpt_config import DEFAULT_MODEL
+from services.console_logger import log_openai_request, log_openai_response
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,12 @@ def chat_completion_to_text(
     # `max_completion_tokens` (newer parameter) or `max_tokens` (legacy).
     effective_max = kwargs.pop('max_completion_tokens', kwargs.pop('max_tokens', max_completion_tokens))
 
+    # Log outbound payload (sanitized) and then call API
+    try:
+        log_openai_request(messages, extra={"model": model, "max_completion_tokens": effective_max})
+    except Exception:
+        pass
+
     response_obj = client.chat.completions.create(
         model=model,
         messages=messages,
@@ -101,6 +108,12 @@ def chat_completion_to_text(
         **kwargs,
     )
     text = _extract_text_from_response_obj(response_obj)
+
+    try:
+        log_openai_response(text, response_obj=response_obj)
+    except Exception:
+        pass
+
     return text, response_obj
 
 
@@ -131,6 +144,11 @@ def chat_completion_parse_json(
     )
 
     response_text = _extract_text_from_response_obj(response_obj).strip()
+    try:
+        # Log full response text (user requested). Keep response_obj available for callers.
+        log_openai_response(response_text, response_obj=response_obj)
+    except Exception:
+        pass
 
     # Attempt JSON extraction; return None if it fails
     try:
