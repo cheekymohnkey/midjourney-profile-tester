@@ -60,10 +60,10 @@ GLOBAL_PARAMS_FILE = Path("global_params.json")
 def load_global_params():
     """Load global parameters from file, return default if not found."""
     try:
-        if GLOBAL_PARAMS_FILE.exists():
-            with open(GLOBAL_PARAMS_FILE, 'r') as f:
-                data = json.load(f)
-                return data.get('global_params', '--ar 16:9 --quality 4 --seed 20161027')
+        from storage import get_storage
+        storage = get_storage()
+        data = storage.read_json(str(GLOBAL_PARAMS_FILE)) or {}
+        return data.get('global_params', '--ar 16:9 --quality 4 --seed 20161027')
     except Exception:
         pass
     return '--ar 16:9 --quality 4 --seed 20161027'
@@ -71,8 +71,9 @@ def load_global_params():
 def save_global_params(params):
     """Save global parameters to file."""
     try:
-        with open(GLOBAL_PARAMS_FILE, 'w') as f:
-            json.dump({'global_params': params}, f)
+        from storage import get_storage
+        storage = get_storage()
+        storage.write_json(str(GLOBAL_PARAMS_FILE), {'global_params': params})
     except Exception:
         pass
 
@@ -174,19 +175,13 @@ def find_image_file(output_dir, profile_id, test_name, image_num=None):
 
 @st.cache_data(ttl=60, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
 def get_all_profile_analyses():
-    """Load all profile analyses once and cache for 60 seconds."""
-    storage = get_storage()
-    analysis_files = storage.list_files("profile_analyses", "*_analysis.json")
-    analyses = {}
-    for file_path in analysis_files:
-        try:
-            data = storage.read_json(file_path)
-            file_name = file_path.split('/')[-1]
-            profile_id = data.get('profile_id', file_name.replace('_analysis.json', ''))
-            analyses[profile_id] = data
-        except Exception:
-            pass
-    return analyses
+    """Load all profile analyses once and cache for 60 seconds.
+
+    Delegates to `profile_analyses_manager` which implements per-file
+    metadata-aware caching and logging.
+    """
+    from profile_analyses_manager import load_all_analyses
+    return load_all_analyses()
 
 @st.cache_data(ttl=30, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
 def count_profile_images(profile_id):
@@ -330,7 +325,12 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
 
                 # Clear the analysis rating for this test
                 analysis_file = Path("profile_analyses") / f"{profile_id if profile_id else 'baseline'}_analysis.json"
-                analysis_data = get_storage().read_json(str(analysis_file))
+                analysis_data = get_storage().read_json(str(analysis_file)) or {}
+                try:
+                    from profile_analyses_manager import invalidate
+                    invalidate(str(analysis_file))
+                except Exception:
+                    pass
                 if analysis_data and "ratings" in analysis_data:
                     # Remove rating stored under GUID or legacy title key
                     try:
@@ -354,6 +354,11 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
                             pass
                     if removed:
                         get_storage().write_json(str(analysis_file), analysis_data)
+                        try:
+                            from profile_analyses_manager import invalidate
+                            invalidate(str(analysis_file))
+                        except Exception:
+                            pass
 
                 # Clear caches so upload controls appear on rerun
                 try:

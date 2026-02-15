@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Diagnose rating count mismatch between UI and baseline_analysis.json"""
 
-import json
+from storage import get_storage
+from test_prompts_manager import load_tests
 
-# Load baseline analysis
-with open('profile_analyses/baseline_analysis.json', 'r') as f:
-    baseline = json.load(f)
+storage = get_storage()
+
+# Load baseline analysis via storage backend
+baseline = storage.read_json('profile_analyses/baseline_analysis.json') or {}
 
 # Load test prompts
-with open('test_prompts.json', 'r') as f:
-    tests = json.load(f)
+tests = load_tests()
 
 # Count ratings
 rating_count = len(baseline.get('ratings', {}))
@@ -44,19 +45,19 @@ rated_not_in_tests = rated_set - test_set
 
 if unrated:
     print("\n" + "=" * 60)
-    print(f"❌ UNRATED TESTS ({len(unrated)}):")
+    print(f"UNRATED TESTS ({len(unrated)}):")
     print("=" * 60)
     for name in sorted(unrated):
         print(f"  - {name}")
 
 if rated_not_in_tests:
     print("\n" + "=" * 60)
-    print(f"⚠️  RATINGS FOR TESTS NOT IN test_prompts.json ({len(rated_not_in_tests)}):")
+    print(f"RATINGS FOR TESTS NOT IN test_prompts.json ({len(rated_not_in_tests)}):")
     print("=" * 60)
     for name in sorted(rated_not_in_tests):
         print(f"  - {name}")
 
 if not unrated and not rated_not_in_tests:
     print("\n" + "=" * 60)
-    print("✅ ALL TESTS RATED - NO DISCREPANCIES FOUND")
+    print("ALL TESTS RATED - NO DISCREPANCIES FOUND")
     print("=" * 60)

@@ -55,6 +55,14 @@ class StorageBackend:
         """Ensure directory exists (no-op for S3)."""
         pass
 
+    def get_metadata(self, path: str) -> dict:
+        """Return metadata for the given path.
+
+        Should return a dict that may contain keys like `etag`, `last_modified` (float timestamp),
+        and `size` (int). Backends should return an empty dict if the object does not exist.
+        """
+        raise NotImplementedError
+
     def generate_presigned_url(self, path: str, expires: int = 3600) -> str:
         """Return a presigned GET URL for the given path if backend supports it.
 
@@ -81,13 +89,45 @@ class LocalStorage(StorageBackend):
         if not file_path.exists():
             return {}
         with open(file_path, 'r') as f:
-            return json.load(f)
+            content = f.read()
+        try:
+            from services.console_logger import log_json_read
+            log_json_read(str(file_path), len(content))
+        except Exception:
+            pass
+        return json.loads(content)
     
     def write_json(self, path: str, data: dict) -> None:
         file_path = self._resolve_path(path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
+        content = json.dumps(data, indent=2)
         with open(file_path, 'w') as f:
-            json.dump(data, f, indent=2)
+            f.write(content)
+        try:
+            from services.console_logger import log_file_write
+            log_file_write(str(file_path), len(content))
+        except Exception:
+            pass
+        # If this looks like a profile analysis file, try to invalidate cache
+        try:
+            if 'profile_analyses' in str(path):
+                try:
+                    from profile_analyses_manager import invalidate
+                    invalidate(str(path))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def get_metadata(self, path: str) -> dict:
+        file_path = self._resolve_path(path)
+        if not file_path.exists():
+            return {}
+        st = file_path.stat()
+        return {
+            'mtime': st.st_mtime,
+            'size': st.st_size,
+        }
     
     def read_bytes(self, path: str) -> bytes:
         file_path = self._resolve_path(path)
@@ -173,6 +213,11 @@ class S3Storage(StorageBackend):
             key = self._get_key(path)
             response = self.s3.get_object(Bucket=self.bucket_name, Key=key)
             content = response['Body'].read().decode('utf-8')
+            try:
+                from services.console_logger import log_json_read
+                log_json_read(key, len(content))
+            except Exception:
+                pass
             return json.loads(content)
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
@@ -182,12 +227,52 @@ class S3Storage(StorageBackend):
     def write_json(self, path: str, data: dict) -> None:
         key = self._get_key(path)
         content = json.dumps(data, indent=2)
-        self.s3.put_object(
+        resp = self.s3.put_object(
             Bucket=self.bucket_name,
             Key=key,
             Body=content.encode('utf-8'),
             ContentType='application/json'
         )
+        try:
+            from services.console_logger import log_s3_write
+            log_s3_write(key, len(content.encode('utf-8')), response=resp)
+        except Exception:
+            pass
+        # Invalidate profile analyses cache if writing an analysis
+        try:
+            if key.startswith('profile_analyses/') or '/profile_analyses/' in key:
+                try:
+                    from profile_analyses_manager import invalidate
+                    invalidate(key)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def get_metadata(self, path: str) -> dict:
+        key = self._get_key(path)
+        try:
+            resp = self.s3.head_object(Bucket=self.bucket_name, Key=key)
+            etag = resp.get('ETag')
+            if isinstance(etag, str):
+                etag = etag.strip('"')
+            last_modified = resp.get('LastModified')
+            lm_ts = None
+            if last_modified is not None:
+                try:
+                    lm_ts = last_modified.timestamp()
+                except Exception:
+                    lm_ts = None
+            return {
+                'etag': etag,
+                'last_modified': lm_ts,
+                'size': resp.get('ContentLength'),
+            }
+        except ClientError as e:
+            # If object not found, return empty dict
+            if e.response['Error']['Code'] in ('404', 'NoSuchKey'):
+                return {}
+            return {}
     
     def read_bytes(self, path: str) -> bytes:
         key = self._get_key(path)
