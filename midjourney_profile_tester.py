@@ -537,8 +537,9 @@ def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_
     with open(template_path, 'r') as f:
         prompt_template = f.read()
     
-    # Format the template with profile_id
-    prompt_text = prompt_template.format(profile_id=profile_id)
+    # Format the template with profile_id using simple replace to avoid
+    # issues with un-escaped braces in the template JSON examples.
+    prompt_text = prompt_template.replace("{profile_id}", str(profile_id))
     
     # Prepare batch message content
     message_content = [
@@ -714,20 +715,16 @@ Respond with ONLY the JSON, no other text."""
 
             # Apply deterministic V1 scoring to each returned rating when checks are present
             try:
+                from services.score_service import compute_score_and_metrics
+
                 for name, r in result.get('ratings', {}).items():
                     try:
                         if isinstance(r, dict) and isinstance(r.get('checks'), dict):
-                            v1 = score_v1_from_checks(r.get('checks'), r.get('weights', {}))
-                            r['score'] = round(float(v1['score_0_10']), 2)
-                            r['affinity'] = v1['affinity']
-                            r['metrics_v1'] = {
-                                'must_pass_rate': round(float(v1['must_pass_rate']), 3),
-                                'avoid_clean_rate': round(float(v1['avoid_clean_rate']), 3),
-                                'prefer_rate': round(float(v1['prefer_rate']), 3),
-                                'counts': v1['counts'],
-                                'weights': r.get('weights', {}),
-                                'scoring_version': 'v1_group_weighted'
-                            }
+                            computed = compute_score_and_metrics(r.get('checks'), r.get('weights', {}))
+                            r['score'] = round(float(computed['score']), 2)
+                            r['affinity'] = computed['affinity']
+                            r['confidence'] = float(computed['confidence'])
+                            r['metrics_v1'] = computed['metrics_v1']
                     except Exception:
                         logger.exception("Failed to apply deterministic scoring for rating %s", name)
             except Exception:
