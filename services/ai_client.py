@@ -145,6 +145,22 @@ def chat_completion_to_text(
         resp_file = dump_dir / f"openai_response_{ts}.json"
         try:
             usage = getattr(response_obj, 'usage', None) or (response_obj.get('usage') if isinstance(response_obj, dict) else None)
+            # Ensure `usage` is JSON-serializable; some client libraries return
+            # objects (e.g. CompletionUsage) which json.dumps cannot handle.
+            try:
+                # If usage is None or already serializable, this will pass.
+                json.dumps(usage)
+                usage_serializable = usage
+            except Exception:
+                try:
+                    # Try converting to dict if it's a simple attr container
+                    usage_serializable = {k: getattr(usage, k) for k in dir(usage) if not k.startswith("_")}
+                except Exception:
+                    # Last resort: fallback to string representation
+                    try:
+                        usage_serializable = str(usage)
+                    except Exception:
+                        usage_serializable = None
             choices = getattr(response_obj, 'choices', None)
             finish_reason = None
             if choices and len(choices) > 0:
@@ -230,11 +246,24 @@ def chat_completion_parse_json(
             except Exception:
                 usage = None
 
+            # Make a JSON-serializable representation of usage for debug dumps
+            try:
+                json.dumps(usage)
+                usage_serializable = usage
+            except Exception:
+                try:
+                    usage_serializable = {k: getattr(usage, k) for k in dir(usage) if not k.startswith("_")}
+                except Exception:
+                    try:
+                        usage_serializable = str(usage)
+                    except Exception:
+                        usage_serializable = None
+
             payload = {
                 'time': datetime.datetime.utcnow().isoformat() + 'Z',
                 'response_text_snippet': (response_text or '')[:10000],
                 'finish_reason': finish_reason,
-                'usage': usage,
+                'usage': usage_serializable,
                 'response_obj_repr': None,
             }
             try:
