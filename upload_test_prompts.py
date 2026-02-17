@@ -2,7 +2,7 @@
 """Upload test_prompts.json to S3 using the cached source from
 `test_prompts_manager` so we don't repeatedly hit the filesystem.
 """
-from test_prompts_manager import load_tests
+from services.test_data_service import get_test_data_service
 from dotenv import load_dotenv
 from storage import init_storage
 import logging
@@ -15,8 +15,9 @@ load_dotenv()
 # Initialize S3 storage (or local depending on env)
 storage = init_storage()
 
-# Read from cached source
-data = load_tests()
+# Read from cached source via TestDataService
+tds = get_test_data_service()
+data = tds.list_tests()
 
 # Upload to S3
 storage.write_json('test_prompts.json', data)

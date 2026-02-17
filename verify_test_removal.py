@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-from test_prompts_manager import load_tests
+from services.test_data_service import get_test_data_service
 import logging
 
 logger = logging.getLogger(__name__)
 
-tests = load_tests()
+tds = get_test_data_service()
+tests = tds.list_tests()
 logger.info('✅ Test suite updated')
 logger.info('New test count: %d (was 40)', len(tests))
 

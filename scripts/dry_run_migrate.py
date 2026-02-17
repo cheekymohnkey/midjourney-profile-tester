@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import test_prompts_manager as tpm
+from services.test_data_service import get_test_data_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,7 +14,8 @@ def build_safe(title):
     return title.replace(' ', '_').replace('/', '_')
 
 
-tests = tpm.load_tests(status_filter=None)
+tds = get_test_data_service()
+tests = tds.list_tests(status_filter=None)
 if not tests:
     logger.info('No tests loaded')
     sys.exit(0)

@@ -8,7 +8,7 @@ This script:
 3. Reports space savings and cleanup results
 """
 
-from test_prompts_manager import load_tests
+from services.test_data_service import get_test_data_service
 from pathlib import Path
 from PIL import Image
 import os
@@ -18,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 def load_valid_tests():
     """Load test_prompts.json and return set of valid test titles."""
-    tests = load_tests()
+    tds = get_test_data_service()
+    tests = tds.list_tests()
     return {test['title'] for test in tests}
 
 def resize_and_convert_image(img_path, max_size=1024, quality=90):

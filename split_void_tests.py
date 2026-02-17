@@ -2,14 +2,15 @@
 """Split VOID test into VOID_PHOTO and VOID_ART tests using the
 `test_prompts_manager` so cache and storage backends are respected.
 """
-from test_prompts_manager import load_tests, save_tests
+from services.test_data_service import get_test_data_service
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 # Read test prompts via manager (uses cache/storage)
-tests = load_tests()
+tds = get_test_data_service()
+tests = tds.list_tests()
 
 # Remove existing VOID section tests
 tests = [t for t in tests if t.get('section') != 'VOID']
@@ -40,7 +41,7 @@ void_art = {
 
 # Append and save (save_tests updates cache/meta)
 tests.extend([void_photo, void_art])
-save_tests(tests)
+tds.save_tests(tests)
 
 logger.info('✓ Split VOID test into two tests:')
 logger.info('  1. VOID_PHOTO: %s', void_photo['params'])

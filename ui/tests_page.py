@@ -3,7 +3,8 @@ import json
 import datetime
 from pathlib import Path
 import streamlit as st
-import test_prompts_manager as tpm
+from services.test_data_service import get_test_data_service
+tpm = get_test_data_service()
 from storage import get_storage
 from services.test_runner import run_test_for_profile
 from services.analysis import score_v1_from_checks
@@ -90,8 +91,8 @@ def render_tests_page(
     st.markdown("Add, edit, archive, and version control your test prompts.")
 
     # Load current tests
-    tests = tpm.load_tests()
-    debug_log.append(f"[{time.time() - start_time:.2f}s] Loaded {len(tests)} tests from tpm.load_tests()")
+    tests = tpm.list_tests()
+    debug_log.append(f"[{time.time() - start_time:.2f}s] Loaded {len(tests)} tests from TestDataService.list_tests()")
     debug_container.code("\n".join(debug_log))
 
     # Cache all image files (jpg and png) once for this page load
@@ -303,44 +304,14 @@ def render_tests_page(
                                             continue
                                         checks = rating_data.get('checks', {}) or {}
                                         metrics = rating_data.get('metrics_v1') or rating_data.get('metrics') or {}
-                                        # Prefer explicit weights in stored metrics; otherwise use the
-                                        # test's rubric weights. Fetch a fresh test entry in case
-                                        # the in-memory `test` object is stale.
+                                        # Delegate scoring to centralized scoring service which
+                                        # will lookup authoritative rubrics by test id/guid.
                                         try:
-                                            freshest_test = tpm.get_test_by_title(test.get('title')) or test
-                                        except Exception:
-                                            freshest_test = test
-                                        test_weights = (freshest_test.get('rubric', {}) or {}).get('weights', {})
-                                        rubric_weights = metrics.get('weights') or test_weights or {}
-                                        # Fetch authoritative test weights (fresh) and log everything before scoring.
-                                        try:
-                                            authoritative_test = tpm.get_test_by_title(test.get('title')) or freshest_test
-                                        except Exception:
-                                            authoritative_test = freshest_test
-                                        authoritative_weights = (authoritative_test.get('rubric', {}) or {}).get('weights', {})
-                                        # Console-output for trace (promote to INFO so server logs show it)
-                                        _msg = '[UI RESCORE PREP] rating_key=%s authoritative_weights=%s resolved_weights=%s client_metrics_weights=%s'
-                                        try:
-                                            logger.info(_msg, rating_key, authoritative_weights, rubric_weights, (metrics.get('weights') or {}))
-                                        except Exception:
-                                            try:
-                                                logger.debug(_msg, rating_key, authoritative_weights, rubric_weights, (metrics.get('weights') or {}))
-                                            except Exception:
-                                                pass
-                                        # If authoritative weights exist, ensure they match resolved; otherwise abort this rating
-                                        if authoritative_weights and (rubric_weights != authoritative_weights):
-                                            try:
-                                                logger.info('[UI RESCORE ABORT] rating_key=%s resolved_weights do not match authoritative_weights; skipping scoring. resolved=%s authoritative=%s', rating_key, rubric_weights, authoritative_weights)
-                                            except Exception:
-                                                try:
-                                                    logger.debug('[UI RESCORE ABORT] rating_key=%s resolved_weights do not match authoritative_weights; skipping scoring', rating_key)
-                                                except Exception:
-                                                    pass
-                                            continue
-                                        # Call scoring function (it logs inputs/outputs)
-                                        try:
-                                            score_v1_from_checks(checks, rubric_weights)
-                                            logger.info('[UI RESCORE] Scored rating_key=%s', rating_key)
+                                            from services.score_service import apply_scores_to_result
+                                            parsed_for_scoring = {'ratings': {rating_key: {'checks': checks, 'test_id': rating_key}}}
+                                            scored = apply_scores_to_result(parsed_for_scoring)
+                                            scored_rating = scored.get('ratings', {}).get(rating_key)
+                                            logger.info('[UI RESCORE] Scored rating_key=%s score=%s affinity=%s', rating_key, scored_rating.get('score'), scored_rating.get('affinity'))
                                         except Exception as e:
                                             logger.exception('[UI RESCORE] Failed to score rating_key=%s: %s', rating_key, e)
                                         res_count += 1

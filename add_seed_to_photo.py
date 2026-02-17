@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Add --seed 20161027 back to PHOTO tests."""
-from test_prompts_manager import load_tests, save_tests
+from services.test_data_service import get_test_data_service
 from storage import get_storage
 #!/usr/bin/env python3
 """Add --seed 20161027 back to PHOTO tests."""
-from test_prompts_manager import load_tests, save_tests
-from storage import get_storage
 from dotenv import load_dotenv
 import logging
 
@@ -14,8 +12,9 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 storage = get_storage()
 
-# Read test prompts via cache
-tests = load_tests()
+# Read test prompts via TestDataService
+tds = get_test_data_service()
+tests = tds.list_tests()
 
 # Update all PHOTO tests with seed
 new_params = '--ar 16:9 --quality 4 --stylize 250 --raw --seed 20161027'
@@ -28,7 +27,7 @@ for test in tests:
         logger.info('Updated: %s', test['title'])
 
 # Save locally (updates cache)
-save_tests(tests)
+tds.save_tests(tests)
 
 # Upload to S3
 storage.write_json('test_prompts.json', tests)
@@ -41,4 +40,4 @@ logger.info('✓ Saved locally and uploaded to S3')
 void_tests = [t for t in tests if t.get('section') == 'VOID']
 if void_tests:
     logger.info('\nVOID test params (unchanged): %s', void_tests[0]['params'])
-from dotenv import load_dotenv
+if void_tests:

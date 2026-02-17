@@ -94,10 +94,9 @@ def run_test_for_profile(test: dict, prof: str, find_image_file, save_analysis):
                 result = parsed
                 try:
                     from services.score_service import apply_scores_to_result
-                    # Provide test-level default weights so scoring uses the test's rubric when
-                    # the AI-parsed rating omits metrics/weights.
-                    default_weights = (test.get('rubric', {}) or {}).get('weights', {})
-                    result = apply_scores_to_result(result, default_weights=default_weights)
+                    # Scoring service fetches authoritative rubric by GUID itself;
+                    # don't pass weights from the client layer.
+                    result = apply_scores_to_result(result)
                 except Exception:
                     logger.exception("Failed to apply deterministic scoring to single-test result")
         except Exception as e:

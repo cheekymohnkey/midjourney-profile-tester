@@ -11,7 +11,7 @@ import json
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from storage import get_storage
-import test_prompts_manager as tpm
+from services.test_data_service import get_test_data_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,14 +33,15 @@ def build_safe(title):
 def main():
     storage = get_storage()
     logger.info("Loading tests...")
-    tests = tpm.load_tests(status_filter=None)
+    tds = get_test_data_service()
+    tests = tds.list_tests(status_filter=None)
     if not tests:
         logger.info("No tests found in test_prompts.json")
         return
 
     changed = ensure_guids(tests)
     if changed:
-        tpm.save_tests(tests)
+        tds.save_tests(tests)
         logger.info("Assigned GUIDs to tests and saved test_prompts.json")
     else:
         logger.info("All tests already have GUIDs")

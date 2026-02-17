@@ -32,10 +32,11 @@ logger.info('Found files count: %d', len(files))
 for f in files:
     logger.info('%s', f)
 
-# Map tests to image presence
+# Map tests to image presence via TestDataService
 try:
-    import test_prompts_manager as tpm
-    tests = tpm.load_tests()
+    from services.test_data_service import get_test_data_service
+    tds = get_test_data_service()
+    tests = tds.list_tests()
     filenames = set([p.split('/')[-1] for p in files])
     logger.info('\nTest -> Image present:')
     for t in tests:

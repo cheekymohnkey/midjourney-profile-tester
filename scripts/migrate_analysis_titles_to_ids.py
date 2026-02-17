@@ -7,7 +7,7 @@ import datetime
 import json
 from pathlib import Path
 from storage import get_storage
-import test_prompts_manager as tpm
+from services.test_data_service import get_test_data_service
 from midjourney_profile_tester import canonical_test_key
 import logging
 
@@ -19,7 +19,8 @@ def migrate_one(path: str):
     data = storage.read_json(path) or {}
     ratings = data.get('ratings', {}) or {}
 
-    tests = tpm.load_tests()
+    tds = get_test_data_service()
+    tests = tds.list_tests()
     title_map = {t.get('title'): t for t in tests if t.get('title')}
 
     changes = []

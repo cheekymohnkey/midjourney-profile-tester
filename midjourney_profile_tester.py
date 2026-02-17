@@ -11,7 +11,8 @@ import base64
 import os
 from st_img_pastebutton import paste
 import hashlib
-import test_prompts_manager as tpm
+from services.test_data_service import get_test_data_service
+tpm = get_test_data_service()
 from dotenv import load_dotenv
 from storage import get_storage
 from services.analysis import score_v1_from_checks
@@ -97,7 +98,7 @@ def get_test_token(test_name: str) -> str:
     replacing spaces/slashes with underscores.
     """
     try:
-        tests = tpm.load_tests()
+        tests = tpm.list_tests()
         # Exact match
         for t in tests:
             # Prefer explicit `id` (migration target) then `guid` for compatibility
@@ -467,7 +468,7 @@ def _set_ai_rated_session_flags(test_name: str, message: str | None = None):
 # Helper function to load tests as DataFrame
 def load_tests_df(status_filter='current'):
     """Load tests from JSON and return as DataFrame."""
-    tests = tpm.load_tests(status_filter=status_filter)
+    tests = tpm.list_tests(status_filter=status_filter)
     if not tests:
         return pd.DataFrame(columns=['Section', 'Title', 'Prompt', 'Parameter Values'])
     df = pd.DataFrame(tests)
@@ -494,7 +495,7 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
     
     # Create token for filename: prefer test GUID if available, else safe title
     try:
-        test_obj = tpm.get_test_by_title(test_name)
+        test_obj = tpm.get_by_title(test_name)
         token = canonical_test_key(test_obj, test_name)
     except Exception:
         token = test_name.replace(' ', '_').replace('/', '_')
@@ -535,7 +536,7 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
                 if analysis_data and "ratings" in analysis_data:
                     # Remove rating stored under GUID or legacy title key
                     try:
-                        test_obj = tpm.get_test_by_title(test_name)
+                        test_obj = tpm.get_by_title(test_name)
                     except Exception:
                         test_obj = None
                     rating_key = canonical_test_key(test_obj, test_name)
@@ -1005,7 +1006,7 @@ if not st.session_state.fullscreen:
     
     # Check analysis versions for existing profiles
     # Get total test count and test names
-    current_tests = tpm.load_tests(status_filter='current')
+    current_tests = tpm.list_tests(status_filter='current')
     total_tests = len(current_tests)
     current_test_names = set(t.get('title', '') for t in current_tests)
     
@@ -1645,7 +1646,7 @@ elif st.session_state.page == 'rate':
         rated_keys = set(ratings.keys())
         for test_name in current_test_names:
             try:
-                test_obj = tpm.get_test_by_title(test_name)
+                test_obj = tpm.get_by_title(test_name)
             except Exception:
                 test_obj = None
             canonical = canonical_test_key(test_obj, test_name)
@@ -1695,7 +1696,7 @@ elif st.session_state.page == 'rate':
                 already_rated_names = []
                 for name, _, _ in uploaded_tests:
                     try:
-                        test_obj = tpm.get_test_by_title(name)
+                        test_obj = tpm.get_by_title(name)
                     except Exception:
                         test_obj = None
                     canonical = canonical_test_key(test_obj, name)
@@ -1824,7 +1825,7 @@ elif st.session_state.page == 'rate':
                 already_rated_names = []
                 for name, _, _ in uploaded_tests:
                     try:
-                        test_obj = tpm.get_test_by_title(name)
+                        test_obj = tpm.get_by_title(name)
                     except Exception:
                         test_obj = None
                     canonical = canonical_test_key(test_obj, name)
@@ -1935,7 +1936,7 @@ elif st.session_state.page == 'rate':
                                         # Update ratings (already cleaned in batch function)
                                         for test_name, rating_data in batch_result.get("ratings", {}).items():
                                             try:
-                                                test_obj = tpm.get_test_by_title(test_name)
+                                                test_obj = tpm.get_by_title(test_name)
                                             except Exception:
                                                 test_obj = None
                                             # Always compute canonical write key (prefer id/guid, fallback to sanitized title)
@@ -2138,7 +2139,7 @@ elif st.session_state.page == 'rate':
             test_name = row['Title']
             # Prefer GUID as canonical key when available
             try:
-                test_obj = tpm.get_test_by_title(test_name)
+                test_obj = tpm.get_by_title(test_name)
             except Exception:
                 test_obj = None
             test_key = canonical_test_key(test_obj, test_name)
@@ -2411,7 +2412,7 @@ elif st.session_state.page == 'rate':
                     with col_ai:
                         st.markdown("&nbsp;")  # Spacing
                         try:
-                            _test_obj = tpm.get_test_by_title(test_name)
+                            _test_obj = tpm.get_by_title(test_name)
                         except Exception:
                             _test_obj = None
                         rating_key = canonical_test_key(_test_obj, test_name)
@@ -2423,7 +2424,7 @@ elif st.session_state.page == 'rate':
                             with st.spinner("🤖 Analyzing with AI..."):
                                 try:
                                     try:
-                                        test_obj = tpm.get_test_by_title(test_name)
+                                        test_obj = tpm.get_by_title(test_name)
                                     except Exception:
                                         test_obj = {'title': test_name}
 
@@ -2479,7 +2480,7 @@ elif st.session_state.page == 'rate':
                 
                 # Load existing rating if available (support GUID keys and legacy title keys)
                 try:
-                    test_obj = tpm.get_test_by_title(test_name)
+                    test_obj = tpm.get_by_title(test_name)
                 except Exception:
                     test_obj = None
                 test_key = canonical_test_key(test_obj, test_name)
@@ -2652,7 +2653,7 @@ elif st.session_state.page == 'rate':
                         with col_ai:
                             st.markdown("&nbsp;")  # Spacing
                             try:
-                                _test_obj = tpm.get_test_by_title(test_name)
+                                _test_obj = tpm.get_by_title(test_name)
                             except Exception:
                                 _test_obj = None
                             rating_key = canonical_test_key(_test_obj, test_name)
@@ -2664,7 +2665,7 @@ elif st.session_state.page == 'rate':
                                 with st.spinner("🤖 Analyzing with AI..."):
                                     try:
                                         try:
-                                            test_obj = tpm.get_test_by_title(test_name)
+                                            test_obj = tpm.get_by_title(test_name)
                                         except Exception:
                                             test_obj = {'title': test_name}
 
@@ -2975,7 +2976,7 @@ Be thorough and specific in your analysis."""
                                     # Weight by matching tests
                                     for test_name, overlap in matching_tests[:5]:
                                         try:
-                                            test_obj = tpm.get_test_by_title(test_name)
+                                            test_obj = tpm.get_by_title(test_name)
                                         except Exception:
                                             test_obj = None
                                         key = canonical_test_key(test_obj, test_name)
@@ -3041,7 +3042,7 @@ Be thorough and specific in your analysis."""
                                         ratings = data.get('ratings', {})
                                         for test_name, overlap in matching_tests[:5]:
                                             try:
-                                                test_obj = tpm.get_test_by_title(test_name)
+                                                test_obj = tpm.get_by_title(test_name)
                                             except Exception:
                                                 test_obj = None
                                             key = canonical_test_key(test_obj, test_name)
@@ -3215,7 +3216,7 @@ elif st.session_state.page == 'recommend':
                                 # Use matching tests
                                 for test_name, overlap in matching_tests[:5]:  # Top 5 matches
                                     try:
-                                        test_obj = tpm.get_test_by_title(test_name)
+                                        test_obj = tpm.get_by_title(test_name)
                                     except Exception:
                                         test_obj = None
                                     key = canonical_test_key(test_obj, test_name)
@@ -3314,7 +3315,7 @@ elif st.session_state.page == 'recommend':
                                     # Show scores for matching tests with aesthetic commentary
                                     for test_name, overlap in matching_tests[:5]:
                                         try:
-                                            test_obj = tpm.get_test_by_title(test_name)
+                                            test_obj = tpm.get_by_title(test_name)
                                         except Exception:
                                             test_obj = None
                                         key = canonical_test_key(test_obj, test_name)
