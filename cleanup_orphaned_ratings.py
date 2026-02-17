@@ -8,6 +8,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 storage = get_storage()
+# Use ResultsDataService for analysis read/write
+from services.results_data_service import get_results_data_service
+rds = get_results_data_service()
 
 # Tests that were removed from test_prompts.json
 removed_tests = [
@@ -22,12 +25,17 @@ removed_tests = [
 logger.info('Cleaning up orphaned ratings from profile analyses...\n')
 
 total_removed = 0
-for filename in sorted(os.listdir('profile_analyses')):
-    if filename.endswith('_analysis.json'):
-        profile_id = filename.replace('_analysis.json', '')
-        filepath = f'profile_analyses/{filename}'
+files = []
+try:
+    files = storage.list_files('profile_analyses', pattern='*_analysis.json')
+except Exception:
+    import os
+    files = [f for f in os.listdir('profile_analyses') if f.endswith('_analysis.json')]
 
-        data = storage.read_json(filepath) or {}
+for filename in sorted(files):
+    fname = filename.split('/')[-1]
+    profile_id = fname.replace('_analysis.json', '')
+    data = rds.read_analysis(profile_id) or {}
 
         # Remove orphaned ratings
         ratings = data.get('ratings', {})
@@ -52,8 +60,8 @@ for filename in sorted(os.listdir('profile_analyses')):
 
             data['affinity_summary'] = affinity_summary
 
-            # Save back
-            storage.write_json(filepath, data)
+            # Save back via ResultsDataService
+            rds.write_analysis(profile_id, data)
 
             logger.info('✅ %s: Removed %d orphaned ratings', profile_id, removed_count)
             total_removed += removed_count

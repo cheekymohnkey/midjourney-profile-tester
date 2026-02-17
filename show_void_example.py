@@ -4,14 +4,14 @@ import json
 from dotenv import load_dotenv
 load_dotenv()
 
-from storage import get_storage
+from services.results_data_service import get_results_data_service
 import logging
 
 logger = logging.getLogger(__name__)
 
-storage = get_storage()
-data = storage.read_json('profile_analyses/9hoxpdm_analysis.json')
-void_rating = data['ratings'].get('Null Prompt', {})
+rs = get_results_data_service()
+data = rs.read_analysis('9hoxpdm') or {}
+void_rating = data.get('ratings', {}).get('Null Prompt', {})
 
 logger.info('Example VOID Test AI Response JSON:')
 logger.info('%s', '=' * 80)

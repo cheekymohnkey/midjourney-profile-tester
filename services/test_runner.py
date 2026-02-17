@@ -17,9 +17,9 @@ def run_test_for_profile(test: dict, prof: str, find_image_file, save_analysis):
         analysis_file = Path("profile_analyses") / f"{profile_id_check}_analysis.json"
         # Load existing analysis (if any)
         try:
-            from storage import get_storage
-            storage = get_storage()
-            analysis_data = storage.read_json(str(analysis_file)) or {"ratings": {}}
+            from services.results_data_service import get_results_data_service
+            rsvc = get_results_data_service()
+            analysis_data = rsvc.read_analysis(profile_id_check) or {"ratings": {}}
         except Exception:
             analysis_data = {"ratings": {}}
 
@@ -33,72 +33,17 @@ def run_test_for_profile(test: dict, prof: str, find_image_file, save_analysis):
 
         single_test = [(test_title, collected, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
 
-        # Internal minimal single-test runner implementation (decoupled from UI batch function)
+        # Internal minimal single-test runner implementation: delegate to batch runner
         try:
-            import openai
-            from openai import OpenAI
-            import config
-            from services.test_payload import prepare_test_message
-            from services.ai_client import chat_completion_parse_json
-            from services.gpt_config import DEFAULT_MODEL, DEFAULT_MAX_COMPLETION_TOKENS
+            from services.batch_runner import batch_ai_rate_images
 
-            api_key = config.OPENAI_API_KEY
-            if not api_key:
-                raise ValueError("OPENAI_API_KEY not set in .env file")
-
-            client = OpenAI(api_key=api_key)
-
-            # Load prompt template
-            template_path = Path(__file__).parent.parent / "analysis_prompt_template.txt"
-            prompt_text = ""
+            # existing_ratings passed so the batch runner can skip already-rated tests
             try:
-                prompt_text = template_path.read_text()
-                prompt_text = prompt_text.replace("{profile_id}", str(profile_id_check))
-            except Exception:
-                prompt_text = f"Analysis for profile {profile_id_check}" + "\n\n**Test Images:**"
-
-            message_content = [{"type": "text", "text": prompt_text + "\n\n**Test Images:**"}]
-
-            # Prepare parts for the single test
-            try:
-                parts = prepare_test_message(test_title, collected, {'Section': '', 'Prompt': '', 'Parameter Values': ''}, test)
-                if parts:
-                    message_content.extend(parts)
+                result = batch_ai_rate_images(single_test, profile_id_check, existing_ratings=analysis_data.get('ratings', {}))
             except Exception as e:
-                logger.exception("prepare_test_message failed for %s: %s", test_title, e)
+                # Propagate batch/AI errors to caller
+                return {"status": "error", "profile": profile_id_check, "saved": False, "error": str(e)}
 
-            parsed, response_text, response_obj = chat_completion_parse_json(
-                client=client,
-                messages=[{"role": "user", "content": message_content}],
-                model=DEFAULT_MODEL,
-                max_completion_tokens=DEFAULT_MAX_COMPLETION_TOKENS,
-            )
-
-            if parsed is None:
-                dump_file = None
-                try:
-                    dump_dir = Path("profile_analyses/backups")
-                    dump_dir.mkdir(parents=True, exist_ok=True)
-                    dump_file = dump_dir / f"{profile_id_check}_bad_response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                    dump_payload = {
-                        "test": "single",
-                        "profile": profile_id_check,
-                        "prompt_preview": str(message_content)[:8000],
-                        "response_text": response_text,
-                    }
-                    dump_file.write_text(json.dumps(dump_payload, indent=2))
-                except Exception as e:
-                    logger.exception("Failed to write single-test bad-response dump for %s: %s", profile_id_check, e)
-                result = {"error": "no_json_response", "dump_file": str(dump_file) if dump_file is not None else None, "response_text_snippet": (response_text or '')[:2000]}
-            else:
-                result = parsed
-                try:
-                    from services.score_service import apply_scores_to_result
-                    # Scoring service fetches authoritative rubric by GUID itself;
-                    # don't pass weights from the client layer.
-                    result = apply_scores_to_result(result)
-                except Exception:
-                    logger.exception("Failed to apply deterministic scoring to single-test result")
         except Exception as e:
             return {"status": "error", "profile": profile_id_check, "saved": False, "error": str(e)}
 
@@ -144,36 +89,17 @@ def run_test_for_profile(test: dict, prof: str, find_image_file, save_analysis):
 
         # Save analysis with a timestamped backup of existing file when present
         try:
+            # Prefer caller-provided save_analysis callback so tests and UI can intercept
             try:
-                from storage import get_storage
-                storage = get_storage()
+                save_analysis(profile_id_check, analysis_data)
             except Exception:
-                storage = None
-
-            # If a prior analysis file existed, write a timestamped backup
-            try:
-                if storage is not None:
-                    analysis_path = f"profile_analyses/{profile_id_check}_analysis.json"
-                    prior = storage.read_json(analysis_path)
-                    if prior:
-                        # Ensure backup directory exists in storage APIs that support listing/writing
-                        backup_dir = f"profile_analyses/backups"
-                        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                        backup_name = f"{profile_id_check}_analysis_backup_{timestamp}.json"
-                        backup_path = f"{backup_dir}/{backup_name}"
-                        try:
-                            storage.write_json(backup_path, prior)
-                        except Exception:
-                            # Best-effort: if storage backend can't write nested paths, try top-level
-                            try:
-                                storage.write_json(str(Path('profile_analyses') / 'backups' / backup_name), prior)
-                            except Exception:
-                                pass
-            except Exception:
-                pass
-
-            # Finally, save the new analysis via provided callback
-            save_analysis(profile_id_check, analysis_data)
+                # If callback fails or is not intended, fall back to ResultsDataService
+                try:
+                    from services.results_data_service import get_results_data_service
+                    rsvc = get_results_data_service()
+                    rsvc.write_analysis(profile_id_check, analysis_data, make_backup=True)
+                except Exception:
+                    logger.exception("Failed to persist analysis for %s", profile_id_check)
         except Exception as e:
             return {"status": "error", "profile": profile_id_check, "saved": False, "error": str(e)}
 

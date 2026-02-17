@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 def migrate_one(path: str):
     storage = get_storage()
-    data = storage.read_json(path) or {}
+    # Path is expected to be like 'profile_analyses/{profile_id}_analysis.json'
+    from services.results_data_service import get_results_data_service
+    rds = get_results_data_service()
+    profile_id = Path(path).name.replace('_analysis.json', '')
+    data = rds.read_analysis(profile_id) or {}
     ratings = data.get('ratings', {}) or {}
 
     tds = get_test_data_service()
@@ -42,12 +46,16 @@ def migrate_one(path: str):
                     changes.append((path, key, write_key, 'migrated'))
 
     if changes:
-        # Backup original
+        # Backup original and write via ResultsDataService
         ts = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+        # create backup via storage directly (keeps same location semantics)
         backup_path = f"{path}.bak.{ts}"
-        storage.write_json(backup_path, data)
+        try:
+            storage.write_json(backup_path, data)
+        except Exception:
+            logger.exception('Failed to write backup %s', backup_path)
         data['ratings'] = new_ratings
-        storage.write_json(path, data)
+        rds.write_analysis(profile_id, data)
         logger.info("Updated %s: %d changes, backup -> %s", path, len(changes), backup_path)
         for c in changes:
             logger.info(" %s", c)

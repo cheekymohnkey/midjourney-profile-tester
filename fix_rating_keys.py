@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from services.test_data_service import get_test_data_service
 from storage import get_storage
+from services.results_data_service import get_results_data_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,9 +20,9 @@ tests = tds.list_tests()
 # Create dict of test titles
 test_titles = {test['title']: test for test in tests}
 
-# Load baseline analysis via storage
-baseline_path = 'profile_analyses/baseline_analysis.json'
-baseline = storage.read_json(baseline_path) or {}
+# Load baseline analysis via ResultsDataService
+rds = get_results_data_service()
+baseline = rds.read_analysis('baseline') or {}
 
 logger.info('Current ratings keys:')
 for key in sorted(baseline.get('ratings', {}).keys()):
@@ -48,11 +49,11 @@ if images_dir.exists():
     for idx, (filename, mtime) in enumerate(image_files, 1):
         name_part = filename.replace('baseline_', '').rsplit('.', 1)[0]
         test_name = name_part.replace('_', ' ')
-            if test_name in test_titles:
-                test_key = f"Test {idx}"
-                if test_key in baseline.get('ratings', {}):
-                    test_mapping[test_key] = test_name
-                    logger.info('  Test %d: %s -> %s', idx, filename, test_name)
+        if test_name in test_titles:
+            test_key = f"Test {idx}"
+            if test_key in baseline.get('ratings', {}):
+                test_mapping[test_key] = test_name
+                logger.info('  Test %d: %s -> %s', idx, filename, test_name)
 
     # Apply mapping to fix ratings
     fixed_ratings = {}
@@ -73,8 +74,8 @@ if images_dir.exists():
         # Update baseline
         baseline['ratings'] = fixed_ratings
 
-        # Save via storage
-        storage.write_json(baseline_path, baseline)
+        # Save via ResultsDataService
+        rds.write_analysis('baseline', baseline)
 
         logger.info('\n✅ Fixed %d rating keys in %s', len(changes_made), baseline_path)
     else:

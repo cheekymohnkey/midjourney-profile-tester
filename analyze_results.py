@@ -5,20 +5,30 @@ import os
 from collections import defaultdict
 from storage import get_storage
 from services.test_data_service import get_test_data_service
+from services.results_data_service import get_results_data_service
 import logging
 
 logger = logging.getLogger(__name__)
 
 storage = get_storage()
+# Use ResultsDataService for reading analyses
+rds = get_results_data_service()
 
 # Load all analysis files
 analyses = {}
-for filename in os.listdir('profile_analyses'):
-    if filename.endswith('_analysis.json'):
-        profile_id = filename.replace('_analysis.json', '')
-        analyses[profile_id] = storage.read_json(f'profile_analyses/{filename}') or {}
+files = []
+try:
+    files = storage.list_files('profile_analyses', pattern='*_analysis.json')
+except Exception:
+    import os
+    files = [f for f in os.listdir('profile_analyses') if f.endswith('_analysis.json')]
 
-    logger.info('📊 Loaded %d profile analyses\n', len(analyses))
+for filename in files:
+    fname = filename.split('/')[-1]
+    profile_id = fname.replace('_analysis.json', '')
+    analyses[profile_id] = rds.read_analysis(profile_id) or {}
+
+logger.info('📊 Loaded %d profile analyses\n', len(analyses))
 
 # Load test prompts for reference via TestDataService
 tds = get_test_data_service()

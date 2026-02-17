@@ -77,9 +77,18 @@ def load_all_analyses() -> Dict[str, Dict]:
                 except Exception:
                     pass
                 try:
-                    data = storage.read_json(file_path) or {}
+                    # Prefer ResultsDataService for reads so authoritative path is centralized
+                    from services.results_data_service import get_results_data_service
+                    rds = get_results_data_service()
+                    # derive profile id from filename
+                    file_name = file_path.split('/')[-1]
+                    profile_id = file_name.replace('_analysis.json', '')
+                    data = rds.read_analysis(profile_id) or {}
                 except Exception:
-                    data = {}
+                    try:
+                        data = storage.read_json(file_path) or {}
+                    except Exception:
+                        data = {}
                 _cached_analyses[file_path] = data
                 try:
                     _cached_meta[file_path] = storage.get_metadata(file_path) or {}
@@ -97,9 +106,17 @@ def load_all_analyses() -> Dict[str, Dict]:
             except Exception:
                 pass
             try:
-                data = storage.read_json(file_path) or {}
+                # Use ResultsDataService to read analysis content when possible
+                from services.results_data_service import get_results_data_service
+                rds = get_results_data_service()
+                file_name = file_path.split('/')[-1]
+                profile_id = file_name.replace('_analysis.json', '')
+                data = rds.read_analysis(profile_id) or {}
             except Exception:
-                data = {}
+                try:
+                    data = storage.read_json(file_path) or {}
+                except Exception:
+                    data = {}
             _cached_analyses[file_path] = data
             try:
                 _cached_meta[file_path] = storage.get_metadata(file_path) or {}

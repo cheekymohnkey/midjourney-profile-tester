@@ -428,11 +428,11 @@ def get_profile_completion_data(profile_list, test_names_tuple, test_count):
     profile_analyses_dir = Path("profile_analyses")
     versions = {}
     completion = {}
+    from services.results_data_service import get_results_data_service
+    rds = get_results_data_service()
     for profile in profile_list:
-        analysis_file = profile_analyses_dir / f"{profile}_analysis.json"
         try:
-            # Try to read from storage (works for both local and S3)
-            data = get_storage().read_json(str(analysis_file))
+            data = rds.read_analysis(profile) or {}
             version = data.get('analysis_version', 'unknown')
             versions[profile] = version
             # Check completion - only count ratings for current tests
@@ -440,8 +440,7 @@ def get_profile_completion_data(profile_list, test_names_tuple, test_count):
             test_names_set = set(test_names_tuple)
             valid_ratings = [t for t in ratings.keys() if t in test_names_set]
             completion[profile] = (len(valid_ratings) == test_count)
-        except:
-            # File doesn't exist or can't be read
+        except Exception:
             versions[profile] = 'unknown'
             completion[profile] = False
     return versions, completion
@@ -525,14 +524,15 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
                     except Exception:
                         pass
 
-                # Clear the analysis rating for this test
-                analysis_file = Path("profile_analyses") / f"{profile_id if profile_id else 'baseline'}_analysis.json"
-                analysis_data = get_storage().read_json(str(analysis_file)) or {}
+                # Clear the analysis rating for this test (use ResultsDataService)
+                from services.results_data_service import get_results_data_service
+                rds = get_results_data_service()
+                aid = profile_id if profile_id else 'baseline'
+                analysis_data = rds.read_analysis(aid) or {}
                 try:
                     from profile_analyses_manager import invalidate
-                    invalidate(str(analysis_file))
                 except Exception:
-                    pass
+                    invalidate = None
                 if analysis_data and "ratings" in analysis_data:
                     # Remove rating stored under GUID or legacy title key
                     try:
@@ -555,10 +555,10 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
                         except Exception:
                             pass
                     if removed:
-                        get_storage().write_json(str(analysis_file), analysis_data)
+                        rds.write_analysis(aid, analysis_data)
                         try:
-                            from profile_analyses_manager import invalidate
-                            invalidate(str(analysis_file))
+                            if invalidate:
+                                invalidate(str(Path("profile_analyses") / f"{aid}_analysis.json"))
                         except Exception:
                             pass
 
@@ -816,8 +816,10 @@ def save_analysis(profile_id, analysis_data):
     import json
     # Add version to analysis data before saving
     analysis_data['analysis_version'] = ANALYSIS_PROMPT_VERSION
-    analysis_file = Path("profile_analyses") / f"{profile_id}_analysis.json"
-    get_storage().write_json(str(analysis_file), analysis_data)
+    # Use ResultsDataService to persist analysis and handle backups
+    from services.results_data_service import get_results_data_service
+    rds = get_results_data_service()
+    return rds.write_analysis(profile_id, analysis_data, make_backup=True)
 
 # Custom CSS to make code block copy button always visible and highlight when copied
 st.markdown("""
@@ -1556,10 +1558,11 @@ elif st.session_state.page == 'rate':
     
     import json
     
-    # Initialize or load existing data
-    if analysis_file.exists():
-        analysis_data = get_storage().read_json(str(analysis_file))
-    else:
+    # Initialize or load existing data via ResultsDataService
+    from services.results_data_service import get_results_data_service
+    rds = get_results_data_service()
+    analysis_data = rds.read_analysis(display_profile_id) or {}
+    if not analysis_data:
         analysis_data = {
             "profile_id": display_profile_id,
             "profile_label": "",
@@ -1597,12 +1600,14 @@ elif st.session_state.page == 'rate':
                 all_profiles = {}
                 profile_analyses_dir = Path("profile_analyses")
                 
+                from services.results_data_service import get_results_data_service
+                rds = get_results_data_service()
                 for prof in sorted(profile_dirs):
-                    analysis_file = profile_analyses_dir / f"{prof}_analysis.json"
                     try:
-                        data = get_storage().read_json(str(analysis_file))
-                        all_profiles[prof] = data
-                    except Exception as e:
+                        data = rds.read_analysis(prof) or {}
+                        if data:
+                            all_profiles[prof] = data
+                    except Exception:
                         # Skip profiles without analysis files
                         pass
                 
@@ -1747,13 +1752,17 @@ elif st.session_state.page == 'rate':
                     backup_created = False
                     backup_error = None
                     try:
-                        if analysis_file.exists():
-                            # Read and write to create backup
-                            data = storage.read_json(str(analysis_file))
-                            storage.write_json(str(backup_path), data)
-                            backup_created = True
+                        from services.results_data_service import get_results_data_service
+                        rds = get_results_data_service()
+                        data = rds.read_analysis(display_profile_id) or {}
+                        if data:
+                            try:
+                                storage.write_json(str(backup_path), data)
+                                backup_created = True
+                            except Exception as e:
+                                backup_error = f"Backup write failed: {str(e)}"
                         else:
-                            backup_error = f"Analysis file not found: {analysis_file}"
+                            backup_error = f"Analysis file not found or empty for: {display_profile_id}"
                     except Exception as e:
                         backup_error = f"Backup failed: {str(e)}"
                     
@@ -1869,8 +1878,9 @@ elif st.session_state.page == 'rate':
                                         logger.debug("🔍 DEBUG After save: Saved to %s_analysis.json", display_profile_id)
 
                                         # Verify what was saved
-                                        import json
-                                        saved_data = get_storage().read_json(str(analysis_file))
+                                        from services.results_data_service import get_results_data_service
+                                        rds = get_results_data_service()
+                                        saved_data = rds.read_analysis(display_profile_id) or {}
                                         logger.debug("🔍 DEBUG Verification: Read back label='%s'", saved_data.get('profile_label', 'MISSING'))
                                         
                                         # Store success message in session state before rerun
@@ -2038,7 +2048,7 @@ elif st.session_state.page == 'rate':
     # Only save if user actually changed it (not just rerender)
     if profile_label != analysis_data.get("profile_label", "") and profile_label != "":
         analysis_data["profile_label"] = profile_label
-        get_storage().write_json(str(analysis_file), analysis_data)
+        save_analysis(display_profile_id, analysis_data)
     
     st.markdown("---")
     
@@ -2077,7 +2087,7 @@ elif st.session_state.page == 'rate':
                 existing = analysis_data.get("profile_dna", []) or []
                 rest = [t for t in existing if t not in manual_list]
                 analysis_data["profile_dna"] = manual_list + rest
-                get_storage().write_json(str(analysis_file), analysis_data)
+                save_analysis(display_profile_id, analysis_data)
                 st.rerun()
     
     if dna_list:
@@ -2096,7 +2106,7 @@ elif st.session_state.page == 'rate':
             # Also update manual list order to keep manual traits first in their new order
             manual_list = [t for t in sorted_items if t in (analysis_data.get("profile_dna_manual", []) or [])]
             analysis_data["profile_dna_manual"] = manual_list
-            get_storage().write_json(str(analysis_file), analysis_data)
+            save_analysis(display_profile_id, analysis_data)
             st.rerun()
         
         # Show delete buttons for each trait
@@ -2117,7 +2127,7 @@ elif st.session_state.page == 'rate':
                         manual_list = [t for t in manual_list if t != removed]
                         analysis_data["profile_dna_manual"] = manual_list
                     analysis_data["profile_dna"] = current_list
-                    get_storage().write_json(str(analysis_file), analysis_data)
+                    save_analysis(display_profile_id, analysis_data)
                     st.rerun()
     
     st.markdown("---")
@@ -2711,8 +2721,8 @@ elif st.session_state.page == 'rate':
                             
                             analysis_data["affinity_summary"] = affinity_summary
                             
-                            # Save to file
-                            get_storage().write_json(str(analysis_file), analysis_data)
+                            # Save to file via centralized save_analysis
+                            save_analysis(display_profile_id, analysis_data)
                             
                             st.success(f"✅ Saved rating for {test_name}")
                             import time
@@ -2923,18 +2933,20 @@ Be thorough and specific in your analysis."""
                         profile_analyses_dir = Path("profile_analyses")
                         analyses = {}
                         
-                        # List all analysis files
+                        # List all analysis files and load via ResultsDataService
                         storage = get_storage()
                         analysis_files = storage.list_files("profile_analyses", "*_analysis.json")
-                        
+                        from services.results_data_service import get_results_data_service
+                        rds = get_results_data_service()
+
                         for file_path in analysis_files:
                             try:
-                                import json
                                 file_name = file_path.split('/')[-1]
                                 profile_id = file_name.replace("_analysis.json", "")
-                                data = storage.read_json(file_path)
-                                analyses[profile_id] = data
-                            except:
+                                data = rds.read_analysis(profile_id) or {}
+                                if data:
+                                    analyses[profile_id] = data
+                            except Exception:
                                 pass
                         
                         if not analyses:
@@ -3104,16 +3116,19 @@ elif st.session_state.page == 'recommend':
     analyses = {}
     storage = get_storage()
     json_files = storage.list_files("profile_analyses", "*_analysis.json")
-    
+    from services.results_data_service import get_results_data_service
+    rds = get_results_data_service()
+
     if json_files:
         for json_file_path in json_files:
             try:
-                data = storage.read_json(json_file_path)
                 file_name = json_file_path.split('/')[-1]
-                profile_id = data.get('profile_id', file_name.replace('_analysis.json', ''))
-                analyses[profile_id] = data
+                profile_id = file_name.replace('_analysis.json', '')
+                data = rds.read_analysis(profile_id) or {}
+                if data:
+                    analyses[profile_id] = data
             except Exception as e:
-                st.warning(f"⚠️ Could not load {file_name}: {e}")
+                st.warning(f"⚠️ Could not load {json_file_path}: {e}")
         
         st.success(f"✅ Loaded {len(analyses)} profile analyses")
         

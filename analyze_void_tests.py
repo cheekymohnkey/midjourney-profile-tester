@@ -13,7 +13,11 @@ logger = logging.getLogger(__name__)
 
 from storage import get_storage
 
+from services.results_data_service import get_results_data_service
+
 storage = get_storage()
+# Use ResultsDataService to read analysis contents
+rds = get_results_data_service()
 analysis_files = storage.list_files('profile_analyses', '*_analysis.json')
 
 logger.info('📊 VOID Test Analysis Across Profiles')
@@ -26,8 +30,10 @@ for file_path in sorted(analysis_files):
         continue
     
     try:
-        data = storage.read_json(file_path)
-        profile_id = data.get('profile_id', 'unknown')
+        # derive profile id from filename and read via ResultsDataService
+        filename = file_path.split('/')[-1]
+        profile_id = filename.replace('_analysis.json', '')
+        data = rds.read_analysis(profile_id) or {}
         profile_label = data.get('profile_label', 'No label')
         ratings = data.get('ratings', {})
         

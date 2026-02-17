@@ -9,6 +9,7 @@ from storage import get_storage
 from services.test_runner import run_test_for_profile
 from services.analysis import score_v1_from_checks
 import logging
+from services.results_data_service import get_results_data_service
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,7 @@ def render_tests_page(
 
     # Cache all image files (jpg and png) once for this page load
     storage = __import__("storage").get_storage()
+    rds = get_results_data_service()
     debug_log.append(f"[{time.time() - start_time:.2f}s] Listing all image files (jpg/png) once for all tests...")
     debug_container.code("\n".join(debug_log[-10:]))
     try:
@@ -295,8 +297,7 @@ def render_tests_page(
                                 for rating in profile_ratings:
                                     prof = rating.get('profile_id')
                                     try:
-                                        analysis_file = Path("profile_analyses") / f"{prof}_analysis.json"
-                                        analysis_data = get_storage().read_json(str(analysis_file)) or {}
+                                        analysis_data = rds.read_analysis(prof) or {}
                                         rating_key = test.get('id') or test.get('guid') or test.get('title')
                                         ratings_dict = analysis_data.get('ratings', {})
                                         rating_data = ratings_dict.get(rating_key) or ratings_dict.get(test.get('title'))
@@ -331,8 +332,7 @@ def render_tests_page(
                                     try:
                                         prof_id_check = prof if prof else 'baseline'
                                         # Check existing rating to avoid overwriting in the "Analyze Missing" flow
-                                        analysis_file = Path("profile_analyses") / f"{prof_id_check}_analysis.json"
-                                        analysis_data = __import__("storage").get_storage().read_json(str(analysis_file)) or {"ratings": {}}
+                                        analysis_data = rds.read_analysis(prof_id_check) or {"ratings": {}}
                                         rating_key = test.get('id') or test.get('guid') or test.get('title')
                                         existing_ratings_dict = analysis_data.get('ratings', {})
                                         if rating_key in existing_ratings_dict or test.get('title') in existing_ratings_dict:
@@ -438,8 +438,12 @@ def render_tests_page(
                                         try:
                                             prof_id_check = prof if prof else 'baseline'
                                             # Skip profiles that already have a rating for this test
-                                            analysis_file = Path("profile_analyses") / f"{prof_id_check}_analysis.json"
-                                            analysis_data = __import__("storage").get_storage().read_json(str(analysis_file)) or {"ratings": {}}
+                                            try:
+                                                analysis_data = rds.read_analysis(prof_id_check) or {"ratings": {}}
+                                            except Exception:
+                                                # Fallback to direct storage read if ResultsDataService unavailable
+                                                analysis_file = Path("profile_analyses") / f"{prof_id_check}_analysis.json"
+                                                analysis_data = __import__("storage").get_storage().read_json(str(analysis_file)) or {"ratings": {}}
                                             rating_key = test.get('id') or test.get('guid') or test_title
                                             existing_ratings_dict = analysis_data.get('ratings', {})
                                             if rating_key in existing_ratings_dict or test_title in existing_ratings_dict:

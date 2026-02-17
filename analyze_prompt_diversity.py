@@ -13,6 +13,7 @@ import math
 from storage import get_storage
 from services.test_data_service import get_test_data_service
 import logging
+from services.results_data_service import get_results_data_service
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +85,15 @@ def main():
             import os
             files = [f for f in os.listdir('profile_analyses') if f.endswith('_analysis.json')]
 
+        # Use ResultsDataService to read analysis content
+        rds = get_results_data_service()
         covered = set()
         for filename in files:
-            path = f'profile_analyses/{filename}'
+            # filename may be full path or just filename
+            fname = filename.split('/')[-1]
+            profile_id = fname.replace('_analysis.json', '')
             try:
-                data = storage.read_json(path)
+                data = rds.read_analysis(profile_id) or {}
             except Exception:
                 data = {}
             ratings = data.get('ratings', {})

@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """Diagnose rating count mismatch between UI and baseline_analysis.json"""
 
-from storage import get_storage
 from services.test_data_service import get_test_data_service
+from services.results_data_service import get_results_data_service
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-storage = get_storage()
 
 # Load test prompts via TestDataService
 tds = get_test_data_service()
 tests = tds.list_tests()
 
-# Load baseline analysis via storage backend
-baseline = storage.read_json('profile_analyses/baseline_analysis.json') or {}
+# Load baseline analysis via ResultsDataService
+rs = get_results_data_service()
+baseline = rs.read_analysis('baseline') or {}
 
 # Load test prompts
 # Load test prompts

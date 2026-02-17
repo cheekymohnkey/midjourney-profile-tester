@@ -8,15 +8,23 @@ import logging
 logger = logging.getLogger(__name__)
 
 storage = get_storage()
+# Use ResultsDataService for read/write
+from services.results_data_service import get_results_data_service
+rds = get_results_data_service()
 
-# List all analysis files (works for local or S3 - use storage.list_files when available)
-analysis_dir = Path('profile_analyses')
-files = sorted(analysis_dir.glob('*_analysis.json'))
+# List all analysis files (use storage.list_files to support S3/local)
+files = []
+try:
+    files = storage.list_files('profile_analyses', pattern='*_analysis.json')
+except Exception:
+    # Fallback to local filesystem listing
+    files = [str(p) for p in sorted(Path('profile_analyses').glob('*_analysis.json'))]
 
 logger.info("Available profiles:")
 for i, file in enumerate(files, 1):
     try:
-        data = storage.read_json(str(file))
+        profile_id = file.name.replace('_analysis.json', '')
+        data = rds.read_analysis(profile_id) or {}
     except Exception:
         data = {}
     rating_count = len(data.get('ratings', {}))
@@ -25,10 +33,12 @@ for i, file in enumerate(files, 1):
 
 logger.info("\nClearing ALL profiles...")
 
-for file in files:
-    filepath = str(file)
+for fp in files:
+    # Normalize to filename
+    fname = str(fp).split('/')[-1]
     try:
-        data = storage.read_json(filepath)
+        profile_id = fname.replace('_analysis.json', '')
+        data = rds.read_analysis(profile_id) or {}
     except Exception:
         data = {}
 
@@ -43,8 +53,8 @@ for file in files:
                 "workable": [],
                 "resistant": []
             }
-        # Save via storage so S3/local backends are handled
-        storage.write_json(filepath, data)
+        # Save via ResultsDataService so S3/local backends are handled
+        rds.write_analysis(profile_id, data)
         logger.info("✅ Cleared %d ratings from %s", rating_count, data.get('profile_id'))
     else:
         logger.info("⏭️  %s already has 0 ratings", data.get('profile_id'))

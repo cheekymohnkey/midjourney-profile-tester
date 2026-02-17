@@ -3,6 +3,7 @@
 
 from storage import get_storage
 import os
+from services.results_data_service import get_results_data_service
 import math
 from collections import defaultdict
 import logging
@@ -10,16 +11,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 storage = get_storage()
+# Use ResultsDataService to read analysis files
+rds = get_results_data_service()
 
 # Load all analysis files
 analyses = {}
-for filename in os.listdir('profile_analyses'):
-    if filename.endswith('_analysis.json'):
-        profile_id = filename.replace('_analysis.json', '')
-        try:
-            analyses[profile_id] = storage.read_json(f'profile_analyses/{filename}')
-        except Exception:
-            analyses[profile_id] = {}
+files = []
+try:
+    files = storage.list_files('profile_analyses', pattern='*_analysis.json')
+except Exception:
+    import os
+    files = [f for f in os.listdir('profile_analyses') if f.endswith('_analysis.json')]
+
+for filename in files:
+    fname = filename.split('/')[-1]
+    profile_id = fname.replace('_analysis.json', '')
+    try:
+        analyses[profile_id] = rds.read_analysis(profile_id) or {}
+    except Exception:
+        analyses[profile_id] = {}
 
 # Analyze test variance
 prompt_stats = defaultdict(lambda: {'native': 0, 'workable': 0, 'resistant': 0, 'total': 0})

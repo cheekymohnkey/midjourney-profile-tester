@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from storage import get_storage
 from services.test_data_service import get_test_data_service
 import logging
+from services.results_data_service import get_results_data_service
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,10 @@ def main():
     updated = 0
     for af in analysis_files:
         try:
-            data = storage.read_json(af)
+            # read analysis via ResultsDataService
+            rds = get_results_data_service()
+            profile_id = Path(af).name.replace('_analysis.json', '')
+            data = rds.read_analysis(profile_id) or {}
             if not data:
                 continue
             ratings = data.get('ratings', {})
@@ -108,7 +112,8 @@ def main():
 
             if changed_local:
                 data['ratings'] = new_ratings
-                storage.write_json(af, data)
+                # persist via ResultsDataService
+                rds.write_analysis(profile_id, data)
                 updated += 1
         except Exception as e:
             logger.exception("Failed to update %s", af)

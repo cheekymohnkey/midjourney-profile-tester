@@ -7,6 +7,12 @@ convenient lookup helpers used across the app.
 from typing import List, Dict, Optional
 import logging
 
+# results service is a consumer-only dependency; import lazily where needed
+try:
+    from services.results_data_service import get_results_data_service
+except Exception:
+    get_results_data_service = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,7 +110,20 @@ class TestDataService:
             logger.error("test_prompts_manager not available for update_test")
             return None
         try:
-            return self._tpm.update_test(test_id, **kwargs)
+            updated = self._tpm.update_test(test_id, **kwargs)
+            # If the test was archived, trigger results archiving for related ratings
+            try:
+                status = kwargs.get('status') or (updated or {}).get('status')
+                if status == 'archived' and updated:
+                    guid = updated.get('guid') or updated.get('id')
+                    if guid and get_results_data_service:
+                        try:
+                            get_results_data_service().archive_ratings_for_test(guid, dry_run=False)
+                        except Exception:
+                            logger.exception("Failed to archive ratings for test guid=%s", guid)
+            except Exception:
+                logger.exception("Error checking archive post-update for %s", test_id)
+            return updated
         except Exception:
             logger.exception("update_test failed")
             return None
@@ -124,7 +143,20 @@ class TestDataService:
             logger.error("test_prompts_manager not available for archive_test")
             return False
         try:
-            return self._tpm.archive_test(test_id)
+            # capture the test guid before archiving
+            try:
+                existing = self.get_by_id(test_id)
+                guid = existing.get('guid') if existing else None
+            except Exception:
+                guid = None
+
+            res = self._tpm.archive_test(test_id)
+            if res and guid and get_results_data_service:
+                try:
+                    get_results_data_service().archive_ratings_for_test(guid, dry_run=False)
+                except Exception:
+                    logger.exception("Failed to archive ratings for test guid=%s", guid)
+            return res
         except Exception:
             logger.exception("archive_test failed")
             return False
