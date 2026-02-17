@@ -507,61 +507,8 @@ def render_tests_page(
                                 st.caption("Runs AI rating for any profiles that have an uploaded image but no rating for this test")
 
                             st.markdown("---")
-                            # Collect matching images for this test across all profiles
-                            images_found = []
-                            test_title_filename = test_title.replace(' ', '_').replace('/', '_')
-                            for file_path in all_image_files_for_tests:
-                                parts = file_path.split('/')
-                                if len(parts) >= 3:
-                                    prof = parts[1]
-                                    filename = parts[2]
-                                    filename_no_ext = filename.rsplit('.', 1)[0]
-                                    if filename_no_ext.startswith(f"{prof}_{test_title_filename}"):
-                                        images_found.append((prof, file_path))
-
-                            if images_found:
-                                images_found.sort(key=lambda x: x[0])
-                                cols_per_row = 3
-                                for i in range(0, len(images_found), cols_per_row):
-                                    cols = st.columns(cols_per_row)
-                                    for j, col in enumerate(cols):
-                                        idx = i + j
-                                        if idx < len(images_found):
-                                            profile_id, img_path = images_found[idx]
-                                            with col:
-                                                st.markdown(f"**{profile_id}**")
-                                                try:
-                                                    img = load_image_cached(str(img_path))
-                                                    st.image(img, width='stretch')
-                                                    # Delete button
-                                                    if st.button(f"🗑️ Delete image for {profile_id}", key=f"delete_{profile_id}_{test_title}"):
-                                                        try:
-                                                            __import__("storage").get_storage().delete(img_path)
-                                                        except Exception:
-                                                            try:
-                                                                __import__("storage").get_storage().delete(str(img_path))
-                                                            except Exception as e:
-                                                                st.error(f"Failed to delete image: {e}")
-                                                                continue
-                                                        # Clear caches so upload controls reappear
-                                                        try:
-                                                            get_profile_image_files.clear()
-                                                        except Exception:
-                                                            pass
-                                                        try:
-                                                            count_profile_images.clear()
-                                                        except Exception:
-                                                            pass
-                                                        try:
-                                                            load_image_cached.clear()
-                                                        except Exception:
-                                                            pass
-                                                        st.success(f"✅ Deleted image for {profile_id}")
-                                                        st.rerun()
-                                                except Exception as e:
-                                                    st.error(f"Failed to load image: {e}")
-                            else:
-                                st.info("No images found for this test across any profiles")
+                            # Grid-style image gallery removed — per-profile upload
+                            # previews above are the canonical image controls.
                         else:
                             st.warning("Test title missing")
 
