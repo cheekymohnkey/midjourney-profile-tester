@@ -581,10 +581,9 @@ def render_tests_page(
                         current_token = st.session_state.get('global_params_token', None)
                         last_seen = st.session_state.get(f"{widget_key}_token", None)
                         if last_seen != current_token:
-                            # Initialize or refresh the per-test widget value. If
-                            # the global params include an explicit seed value
-                            # (e.g. `--seed 123`), replace it with a randomized
-                            # 32-bit unsigned int so prompts vary per use.
+                            # Initialize or refresh the per-test widget value. Use
+                            # the stored global params if present, otherwise use a
+                            # randomized default that includes a fresh seed.
                             def _randomize_seed(s: str) -> str:
                                 import random, re
                                 if not s:
@@ -594,7 +593,10 @@ def render_tests_page(
                                     return f"{prefix}{random.randint(0, 2**32-1)}"
                                 return re.sub(r"(--seed(?:=|\s+))(\d+)", _repl, s, flags=re.IGNORECASE)
 
-                            init_val = st.session_state.get('global_params', '--ar 16:9 --quality 4 --seed 20161027')
+                            init_val = st.session_state.get('global_params')
+                            if not init_val:
+                                # Generate a randomized default if no global params stored
+                                init_val = f"--ar 16:9 --quality 4 --seed {__import__('random').randint(0, 2**32-1)}"
                             st.session_state[widget_key] = _randomize_seed(init_val)
                             st.session_state[f"{widget_key}_token"] = current_token
 

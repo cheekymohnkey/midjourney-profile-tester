@@ -134,16 +134,21 @@ def canonical_test_key(test_obj: dict, test_name: str) -> str:
 # Global parameters persistence file
 GLOBAL_PARAMS_FILE = Path("global_params.json")
 
+
+def default_global_params() -> str:
+    """Return a sensible default global params string with a randomized seed."""
+    return f"--ar 16:9 --quality 4 --seed {random.randint(0, 2**32-1)}"
+
 def load_global_params():
     """Load global parameters from file, return default if not found."""
     try:
         from storage import get_storage
         storage = get_storage()
         data = storage.read_json(str(GLOBAL_PARAMS_FILE)) or {}
-        return data.get('global_params', '--ar 16:9 --quality 4 --seed 20161027')
+        return data.get('global_params', default_global_params())
     except Exception:
         pass
-    return '--ar 16:9 --quality 4 --seed 20161027'
+    return default_global_params()
 
 def save_global_params(params):
     """Save global parameters to file."""
