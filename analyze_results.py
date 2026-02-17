@@ -5,6 +5,9 @@ import os
 from collections import defaultdict
 from storage import get_storage
 from test_prompts_manager import load_tests
+import logging
+
+logger = logging.getLogger(__name__)
 
 storage = get_storage()
 
@@ -15,19 +18,19 @@ for filename in os.listdir('profile_analyses'):
         profile_id = filename.replace('_analysis.json', '')
         analyses[profile_id] = storage.read_json(f'profile_analyses/{filename}') or {}
 
-print(f'📊 Loaded {len(analyses)} profile analyses\n')
+    logger.info('📊 Loaded %d profile analyses\n', len(analyses))
 
 # Load test prompts for reference
 test_prompts = {t['title']: t for t in load_tests()}
 
 # Aggregate statistics
 total_ratings = sum(len(a.get('ratings', {})) for a in analyses.values())
-print(f'Total ratings across all profiles: {total_ratings}\n')
+logger.info('Total ratings across all profiles: %d\n', total_ratings)
 
 # Per-profile summary
-print('=' * 80)
-print('PROFILE SUMMARIES')
-print('=' * 80)
+logger.info('%s', '=' * 80)
+logger.info('PROFILE SUMMARIES')
+logger.info('%s', '=' * 80)
 
 for profile_id, data in sorted(analyses.items()):
     ratings = data.get('ratings', {})
@@ -40,14 +43,14 @@ for profile_id, data in sorted(analyses.items()):
     resistant = affinities.count('resistant')
     scores = [r.get('score', 0) for r in ratings.values()]
     avg_score = sum(scores) / len(scores) if scores else 0
-    print(f'\n{profile_id} - "{label}"')
-    print(f'  Ratings: {len(ratings)}')
-    print(f'  Affinities: ✅ {native} native | ⚠️  {workable} workable | ❌ {resistant} resistant')
-    print(f'  Avg Score: {avg_score:.1f}/10')
+    logger.info('\n%s - "%s"', profile_id, label)
+    logger.info('  Ratings: %d', len(ratings))
+    logger.info('  Affinities: ✅ %d native | ⚠️  %d workable | ❌ %d resistant', native, workable, resistant)
+    logger.info('  Avg Score: %.1f/10', avg_score)
 
-print('\n' + '=' * 80)
-print('PROMPT/STYLE ANALYSIS')
-print('=' * 80)
+logger.info('\n%s', '=' * 80)
+logger.info('PROMPT/STYLE ANALYSIS')
+logger.info('%s', '=' * 80)
 
 prompt_affinities = defaultdict(lambda: {'native': 0, 'workable': 0, 'resistant': 0, 'profiles': []})
 
@@ -63,7 +66,7 @@ for profile_id, data in analyses.items():
             prompt_affinities[prompt_title]['resistant'] += 1
         prompt_affinities[prompt_title]['profiles'].append(profile_id)
 
-print('\n🏆 Most Universally NATIVE prompts (high native_fit across profiles):')
+logger.info('\n🏆 Most Universally NATIVE prompts (high native_fit across profiles):')
 sorted_prompts = sorted(prompt_affinities.items(), 
                        key=lambda x: (x[1]['native'], -x[1]['resistant']), 
                        reverse=True)
@@ -71,9 +74,9 @@ for i, (prompt, stats) in enumerate(sorted_prompts[:10], 1):
     total = stats['native'] + stats['workable'] + stats['resistant']
     if total > 0:
         native_pct = (stats['native'] / total) * 100
-        print(f'{i:2}. {prompt[:60]:60} | ✅ {stats["native"]:2}/{total} ({native_pct:.0f}%) | ⚠️  {stats["workable"]:2} | ❌ {stats["resistant"]:2}')
+        logger.info('%2d. %s | ✅ %2d/%d (%.0f%%) | ⚠️  %2d | ❌ %2d', i, prompt[:60], stats["native"], total, native_pct, stats["workable"], stats["resistant"])
 
-print('\n💀 Most Universally RESISTANT prompts (high resistance across profiles):')
+logger.info('\n💀 Most Universally RESISTANT prompts (high resistance across profiles):')
 sorted_resistant = sorted(prompt_affinities.items(), 
                          key=lambda x: (x[1]['resistant'], -x[1]['native']), 
                          reverse=True)
@@ -81,35 +84,35 @@ for i, (prompt, stats) in enumerate(sorted_resistant[:10], 1):
     total = stats['native'] + stats['workable'] + stats['resistant']
     if total > 0:
         resistant_pct = (stats['resistant'] / total) * 100
-        print(f'{i:2}. {prompt[:60]:60} | ❌ {stats["resistant"]:2}/{total} ({resistant_pct:.0f}%) | ⚠️  {stats["workable"]:2} | ✅ {stats["native"]:2}')
+        logger.info('%2d. %s | ❌ %2d/%d (%.0f%%) | ⚠️  %2d | ✅ %2d', i, prompt[:60], stats["resistant"], total, resistant_pct, stats["workable"], stats["native"])
 
-print('\n' + '=' * 80)
-print('SCORE DISTRIBUTION')
-print('=' * 80)
+logger.info('\n%s', '=' * 80)
+logger.info('SCORE DISTRIBUTION')
+logger.info('%s', '=' * 80)
 
 all_scores = []
 for data in analyses.values():
     all_scores.extend([r.get('score', 0) for r in data.get('ratings', {}).values()])
 
 if all_scores:
-    print(f'\nOverall Statistics:')
-    print(f'  Total Ratings: {len(all_scores)}')
-    print(f'  Average Score: {sum(all_scores)/len(all_scores):.1f}/10')
-    print(f'  Min Score: {min(all_scores)}')
-    print(f'  Max Score: {max(all_scores)}')
+    logger.info('\nOverall Statistics:')
+    logger.info('  Total Ratings: %d', len(all_scores))
+    logger.info('  Average Score: %.1f/10', sum(all_scores)/len(all_scores))
+    logger.info('  Min Score: %s', min(all_scores))
+    logger.info('  Max Score: %s', max(all_scores))
     score_bins = defaultdict(int)
     for score in all_scores:
         bin_key = f'{score:.0f}'
         score_bins[bin_key] += 1
-    print(f'\n  Score Distribution:')
+    logger.info('\n  Score Distribution:')
     for score in range(1, 11):
         count = score_bins.get(str(score), 0)
         bar = '█' * (count // 5) + '▌' * (1 if count % 5 >= 3 else 0)
-        print(f'    {score:2}/10: {count:3} {bar}')
+        logger.info('    %2d/10: %3d %s', score, count, bar)
 
-print('\n' + '=' * 80)
-print('STYLE CATEGORIES')
-print('=' * 80)
+logger.info('\n%s', '=' * 80)
+logger.info('STYLE CATEGORIES')
+logger.info('%s', '=' * 80)
 
 category_stats = defaultdict(lambda: {'native': 0, 'workable': 0, 'resistant': 0, 'count': 0})
 
@@ -122,18 +125,18 @@ for prompt_title, prompt_data in test_prompts.items():
         category_stats[category]['resistant'] += stats['resistant']
         category_stats[category]['count'] += 1
 
-print('\nAffinity by Style Category:')
+logger.info('\nAffinity by Style Category:')
 for category, stats in sorted(category_stats.items(), key=lambda x: x[1]['native'], reverse=True):
     total = stats['native'] + stats['workable'] + stats['resistant']
     if total > 0:
         native_pct = (stats['native'] / total) * 100
-        print(f'{category:30} | ✅ {stats["native"]:3} ({native_pct:5.1f}%) | ⚠️  {stats["workable"]:3} | ❌ {stats["resistant"]:3} | ({stats["count"]} prompts)')
+        logger.info('%-30s | ✅ %3d (%.1f%%) | ⚠️  %3d | ❌ %3d | (%d prompts)', category, stats["native"], native_pct, stats["workable"], stats["resistant"], stats["count"])
 
-print('\n' + '=' * 80)
-print('KEY INSIGHTS')
-print('=' * 80)
+logger.info('\n%s', '=' * 80)
+logger.info('KEY INSIGHTS')
+logger.info('%s', '=' * 80)
 
-print('\n🎲 Most DIVISIVE prompts (varying results across profiles):')
+logger.info('\n🎲 Most DIVISIVE prompts (varying results across profiles):')
 divisive_prompts = []
 for prompt, stats in prompt_affinities.items():
     total = stats['native'] + stats['workable'] + stats['resistant']
@@ -144,9 +147,9 @@ for prompt, stats in prompt_affinities.items():
 divisive_prompts.sort(key=lambda x: x[2], reverse=True)
 for i, (prompt, stats, variance) in enumerate(divisive_prompts[:10], 1):
     total = stats['native'] + stats['workable'] + stats['resistant']
-    print(f'{i:2}. {prompt[:60]:60} | ✅ {stats["native"]:2} | ⚠️  {stats["workable"]:2} | ❌ {stats["resistant"]:2}')
+    logger.info('%2d. %s | ✅ %2d | ⚠️  %2d | ❌ %2d', i, prompt[:60], stats["native"], stats["workable"], stats["resistant"])
 
-print('\n🤝 Most CONSENSUS prompts (similar results across profiles):')
+logger.info('\n🤝 Most CONSENSUS prompts (similar results across profiles):')
 consensus_prompts = []
 for prompt, stats in prompt_affinities.items():
     total = stats['native'] + stats['workable'] + stats['resistant']
@@ -158,6 +161,6 @@ for prompt, stats in prompt_affinities.items():
 consensus_prompts.sort(key=lambda x: x[2], reverse=True)
 for i, (prompt, stats, consensus) in enumerate(consensus_prompts[:10], 1):
     dominant = 'Native' if stats['native'] == max(stats['native'], stats['workable'], stats['resistant']) else ('Workable' if stats['workable'] > stats['resistant'] else 'Resistant')
-    print(f'{i:2}. {prompt[:60]:60} | {dominant:9} ({consensus*100:.0f}% agree) | ✅ {stats["native"]:2} | ⚠️  {stats["workable"]:2} | ❌ {stats["resistant"]:2}')
+    logger.info('%2d. %s | %-9s (%.0f%% agree) | ✅ %2d | ⚠️  %2d | ❌ %2d', i, prompt[:60], dominant, consensus * 100, stats["native"], stats["workable"], stats["resistant"])
 
-print('\n' + '=' * 80)
+logger.info('\n%s', '=' * 80)

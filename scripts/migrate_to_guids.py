@@ -12,6 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from storage import get_storage
 import test_prompts_manager as tpm
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_guids(tests):
@@ -29,18 +32,18 @@ def build_safe(title):
 
 def main():
     storage = get_storage()
-    print("Loading tests...")
+    logger.info("Loading tests...")
     tests = tpm.load_tests(status_filter=None)
     if not tests:
-        print("No tests found in test_prompts.json")
+        logger.info("No tests found in test_prompts.json")
         return
 
     changed = ensure_guids(tests)
     if changed:
         tpm.save_tests(tests)
-        print("Assigned GUIDs to tests and saved test_prompts.json")
+        logger.info("Assigned GUIDs to tests and saved test_prompts.json")
     else:
-        print("All tests already have GUIDs")
+        logger.info("All tests already have GUIDs")
 
     # Build mapping from safe_name -> guid and title -> guid
     safe_to_guid = {}
@@ -52,7 +55,7 @@ def main():
         title_to_guid[t.get('title','')] = guid
 
     # Rename image files under profile_results
-    print("Renaming image files in profile_results/ ...")
+    logger.info("Renaming image files in profile_results/ ...")
     all_files = storage.list_files('profile_results', '*')
     moved = 0
     for fp in all_files:
@@ -74,13 +77,12 @@ def main():
                     storage.delete(old_path)
                     moved += 1
                 except Exception as e:
-                    print(f"Failed to move {old_path} -> {new_path}: {e}")
+                    logger.exception("Failed to move %s -> %s", old_path, new_path)
                 break
-
-    print(f"Renamed {moved} image files.")
+    logger.info("Renamed %d image files.", moved)
 
     # Update profile analyses to reference GUIDs instead of titles
-    print("Updating profile_analyses files to use GUID keys for ratings...")
+    logger.info("Updating profile_analyses files to use GUID keys for ratings...")
     analysis_files = storage.list_files('profile_analyses', '*_analysis.json')
     updated = 0
     for af in analysis_files:
@@ -108,11 +110,11 @@ def main():
                 storage.write_json(af, data)
                 updated += 1
         except Exception as e:
-            print(f"Failed to update {af}: {e}")
+            logger.exception("Failed to update %s", af)
 
-    print(f"Updated {updated} analysis files.")
+    logger.info("Updated %d analysis files.", updated)
 
-    print("Migration complete.")
+    logger.info("Migration complete.")
 
 
 if __name__ == '__main__':

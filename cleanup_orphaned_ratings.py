@@ -3,6 +3,9 @@
 
 import os
 from storage import get_storage
+import logging
+
+logger = logging.getLogger(__name__)
 
 storage = get_storage()
 
@@ -16,7 +19,7 @@ removed_tests = [
     'Surrealism Test'
 ]
 
-print('Cleaning up orphaned ratings from profile analyses...\n')
+logger.info('Cleaning up orphaned ratings from profile analyses...\n')
 
 total_removed = 0
 for filename in sorted(os.listdir('profile_analyses')):
@@ -52,8 +55,8 @@ for filename in sorted(os.listdir('profile_analyses')):
             # Save back
             storage.write_json(filepath, data)
 
-            print(f'✅ {profile_id}: Removed {removed_count} orphaned ratings')
+            logger.info('✅ %s: Removed %d orphaned ratings', profile_id, removed_count)
             total_removed += removed_count
 
-print(f'\n✅ Cleanup complete! Removed {total_removed} orphaned ratings across all profiles')
-print(f'All profiles now have {len(data.get("ratings", {}))} ratings (down from 40)')
+logger.info('\n✅ Cleanup complete! Removed %d orphaned ratings across all profiles', total_removed)
+logger.info('All profiles now have %d ratings (down from 40)', len(data.get('ratings', {})))

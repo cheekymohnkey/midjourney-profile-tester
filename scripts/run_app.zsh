@@ -25,6 +25,7 @@ Commands:
   start-s3            Run with S3 enabled (USE_S3=true TEST_AI=false)
     Options: --port N --bg
   stop                Stop background Streamlit started by this script
+  stop-port           Stop any process listening on a port (default 8555)
   logs                Tail app debug logs
   help                Show this message
 
@@ -34,6 +35,54 @@ Examples:
   $0 start-s3 --port 60080
 
 EOF
+}
+
+stop_port() {
+  local port="${1:-8555}"
+  echo "Stopping processes listening on port $port"
+
+  # Try macOS-style lsof filter first, fallback to generic lsof
+  pids=$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+  if [[ -z "$pids" ]]; then
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+  fi
+
+  # If lsof didn't find anything, try ss (Linux) to extract pids from users(...) field
+  if [[ -z "$pids" ]] && command -v ss >/dev/null 2>&1; then
+    pids=$(ss -ltnp 2>/dev/null | awk -v P=":$port" '
+      $0 ~ P { for(i=1;i<=NF;i++) if($i ~ /pid=/) { pid=$i; sub(/.*pid=/,"",pid); sub(/,.*/,"",pid); printf "%s ", pid } }
+    ' | tr -s ' ')
+  fi
+
+  # If still not found, try fuser (common on many Linuxes)
+  if [[ -z "$pids" ]] && command -v fuser >/dev/null 2>&1; then
+    # fuser prints PIDs separated by whitespace
+    pids=$(fuser -n tcp "$port" 2>/dev/null || true)
+  fi
+
+  if [[ -z "$pids" ]]; then
+    echo "No process found listening on port $port"
+    return 0
+  fi
+
+  echo "Found PIDs: $pids"
+  for pid in $pids; do
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Sending SIGTERM to $pid"
+      kill "$pid" || true
+    fi
+  done
+
+  # Allow graceful shutdown
+  sleep 1
+
+  for pid in $pids; do
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "PID $pid still alive; sending SIGKILL"
+      kill -9 "$pid" || true
+    fi
+  done
+  return 0
 }
 
 ensure_venv() {
@@ -162,6 +211,17 @@ case "$cmd" in
 
   stop)
     stop_streamlit
+    ;;
+  stop-port)
+    PORT_ARG=$DEFAULT_PORT
+    if [[ $# -gt 0 ]]; then
+      case "$1" in
+        --port)
+          PORT_ARG="$2"; shift 2;;
+        *) PORT_ARG="$1"; shift;;
+      esac
+    fi
+    stop_port "$PORT_ARG"
     ;;
 
   logs)

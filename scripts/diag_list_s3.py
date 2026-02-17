@@ -17,13 +17,17 @@ if env_path.exists():
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
     from storage import init_storage, get_storage
-s = get_storage()
-profile = 'qye9ofd'
-files = s.list_files(f'profile_results/{profile}', '*')
-print('USE_S3=', os.getenv('USE_S3'))
-print('S3_BUCKET_NAME=', os.getenv('S3_BUCKET_NAME'))
-print('S3_PREFIX=', os.getenv('S3_PREFIX'))
-print('Found files count:', len(files))
-for f in files:
-    print(f)
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    s = get_storage()
+    profile = 'qye9ofd'
+    files = s.list_files(f'profile_results/{profile}', '*')
+    logger.info('USE_S3=%s', os.getenv('USE_S3'))
+    logger.info('S3_BUCKET_NAME=%s', os.getenv('S3_BUCKET_NAME'))
+    logger.info('S3_PREFIX=%s', os.getenv('S3_PREFIX'))
+    logger.info('Found files count: %d', len(files))
+    for f in files:
+        logger.info('%s', f)
 

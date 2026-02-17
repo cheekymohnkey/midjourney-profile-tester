@@ -3,18 +3,21 @@
 
 import json
 import os
+import logging
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 from storage import get_storage
 
 storage = get_storage()
 analysis_files = storage.list_files('profile_analyses', '*_analysis.json')
 
-print('📊 VOID Test Analysis Across Profiles')
-print('=' * 80)
+logger.info('📊 VOID Test Analysis Across Profiles')
+logger.info('%s', '=' * 80)
 
 void_results = []
 
@@ -40,45 +43,45 @@ for file_path in sorted(analysis_files):
                 'color_palette': void_rating.get('color_palette', 'No color info')
             })
     except Exception as e:
-        print(f'Error reading {file_path}: {e}')
+        logger.exception('Error reading %s', file_path)
 
-print(f'\nFound {len(void_results)} profiles with VOID test ratings\n')
+logger.info('\nFound %d profiles with VOID test ratings\n', len(void_results))
 
 # Group by affinity
 native_fit = [r for r in void_results if r['affinity'] == 'native_fit']
 workable = [r for r in void_results if r['affinity'] == 'workable']
 resistant = [r for r in void_results if r['affinity'] == 'resistant']
 
-print(f'🟢 NATIVE FIT (Strong Signature): {len(native_fit)} profiles')
-print(f'🟡 WORKABLE (Moderate Signature): {len(workable)} profiles')
-print(f'🔴 RESISTANT (Weak Signature): {len(resistant)} profiles')
-print()
+logger.info('🟢 NATIVE FIT (Strong Signature): %d profiles', len(native_fit))
+logger.info('🟡 WORKABLE (Moderate Signature): %d profiles', len(workable))
+logger.info('🔴 RESISTANT (Weak Signature): %d profiles', len(resistant))
+logger.info('')
 
 # Show details for each profile
 for result in sorted(void_results, key=lambda x: x['score'], reverse=True):
-    print(f'\n{"="*80}')
-    print(f"Profile: {result['profile_id']}")
-    print(f"Label: {result['label']}")
-    print(f"Affinity: {result['affinity']} | Score: {result['score']}/10")
-    print(f"\nCommentary:")
-    print(f"  {result['commentary']}")
-    print(f"\nColor Palette:")
-    print(f"  {result['color_palette']}")
+    logger.info('\n%s', '=' * 80)
+    logger.info('Profile: %s', result['profile_id'])
+    logger.info('Label: %s', result['label'])
+    logger.info('Affinity: %s | Score: %s/10', result['affinity'], result['score'])
+    logger.info('\nCommentary:')
+    logger.info('  %s', result['commentary'])
+    logger.info('\nColor Palette:')
+    logger.info('  %s', result['color_palette'])
 
-print(f'\n{"="*80}')
-print('SUMMARY')
-print('=' * 80)
-print(f'Total profiles analyzed: {len(void_results)}')
-print(f'Strong signatures: {len(native_fit)}')
-print(f'Moderate signatures: {len(workable)}')
-print(f'Weak signatures: {len(resistant)}')
+logger.info('\n%s', '=' * 80)
+logger.info('SUMMARY')
+logger.info('%s', '=' * 80)
+logger.info('Total profiles analyzed: %d', len(void_results))
+logger.info('Strong signatures: %d', len(native_fit))
+logger.info('Moderate signatures: %d', len(workable))
+logger.info('Weak signatures: %d', len(resistant))
 if void_results:
-    print(f'Average score: {sum(r["score"] for r in void_results)/len(void_results):.1f}/10')
+    logger.info('Average score: %.1f/10', sum(r['score'] for r in void_results) / len(void_results))
 
 # Analyze themes
-print('\n' + '='*80)
-print('THEME ANALYSIS')
-print('='*80)
+logger.info('\n%s', '=' * 80)
+logger.info('THEME ANALYSIS')
+logger.info('%s', '=' * 80)
 
 # Extract common keywords from commentaries
 from collections import Counter
@@ -96,14 +99,14 @@ for result in void_results:
     all_words.extend(words)
 
 word_freq = Counter(all_words)
-print('\nMost common descriptive terms across all VOID tests:')
+logger.info('\nMost common descriptive terms across all VOID tests:')
 for word, count in word_freq.most_common(30):
-    print(f'  {word}: {count}')
+    logger.info('  %s: %d', word, count)
 
 # Identify profile archetypes
-print('\n' + '='*80)
-print('PROFILE ARCHETYPES IDENTIFIED')
-print('='*80)
+logger.info('\n%s', '=' * 80)
+logger.info('PROFILE ARCHETYPES IDENTIFIED')
+logger.info('%s', '=' * 80)
 
 archetypes = {
     'moody/dark': [],
@@ -143,14 +146,14 @@ for result in void_results:
 
 for archetype, profiles in archetypes.items():
     if profiles:
-        print(f'\n{archetype.upper()}: {len(profiles)} profiles')
+        logger.info('\n%s: %d profiles', archetype.upper(), len(profiles))
         for pid in profiles:
-            print(f'  - {pid}')
+            logger.info('  - %s', pid)
 
 # Identify gaps
-print('\n' + '='*80)
-print('POTENTIAL GAPS IN PROFILE COVERAGE')
-print('='*80)
+logger.info('\n%s', '=' * 80)
+logger.info('POTENTIAL GAPS IN PROFILE COVERAGE')
+logger.info('%s', '=' * 80)
 
 gaps = []
 
@@ -185,10 +188,10 @@ if 'surreal' not in all_commentary:
     gaps.append('SURREAL/DREAMLIKE profiles')
 
 if gaps:
-    print('\nConsider testing profiles that lean toward:')
+    logger.info('\nConsider testing profiles that lean toward:')
     for gap in gaps:
-        print(f'  • {gap}')
+        logger.info('  • %s', gap)
 else:
-    print('\nGood coverage across major aesthetic categories!')
+    logger.info('\nGood coverage across major aesthetic categories!')
 
-print('\n' + '='*80)
+logger.info('\n%s', '=' * 80)

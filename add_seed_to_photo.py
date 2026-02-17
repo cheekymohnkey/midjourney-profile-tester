@@ -7,6 +7,9 @@ from storage import get_storage
 from test_prompts_manager import load_tests, save_tests
 from storage import get_storage
 from dotenv import load_dotenv
+import logging
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 storage = get_storage()
@@ -22,7 +25,7 @@ for test in tests:
     if test.get('section') == 'PHOTO':
         test['params'] = new_params
         updated_count += 1
-        print(f'Updated: {test["title"]}')
+        logger.info('Updated: %s', test['title'])
 
 # Save locally (updates cache)
 save_tests(tests)
@@ -30,12 +33,12 @@ save_tests(tests)
 # Upload to S3
 storage.write_json('test_prompts.json', tests)
 
-print(f'\n✓ Updated {updated_count} PHOTO tests')
-print(f'✓ New params: {new_params}')
-print(f'✓ Saved locally and uploaded to S3')
+logger.info('\n✓ Updated %d PHOTO tests', updated_count)
+logger.info('✓ New params: %s', new_params)
+logger.info('✓ Saved locally and uploaded to S3')
 
 # Show VOID test params to confirm it's different
 void_tests = [t for t in tests if t.get('section') == 'VOID']
 if void_tests:
-    print(f'\nVOID test params (unchanged): {void_tests[0]["params"]}')
+    logger.info('\nVOID test params (unchanged): %s', void_tests[0]['params'])
 from dotenv import load_dotenv

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Swatch — Teal/Cyan + Yellow (cool, medium)</title>
+  <style>
+    :root{
+      --dominant-1:#2aa6a0;   /* muted teal/cyan */
+      --dominant-2:#e6c85b;   /* muted yellow */
+      --accent-1:#e04f4f;     /* accent red */
+      --accent-2:#4fc37a;     /* accent green */
+      --bg:#f6f7f8;
+      --chip-radius:8px;
+      --gap:12px;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Arial; background:var(--bg); color:#0b1220}
+    .wrap{max-width:820px;margin:40px auto;padding:28px;background:white;border-radius:12px;box-shadow:0 6px 20px rgba(9,15,25,0.06)}
+    h1{font-size:18px;margin:0 0 6px}
+    p.meta{margin:0 0 18px;color:#556}
+    .row{display:flex;gap:var(--gap);align-items:center}
+    .dominants{display:flex;gap:var(--gap);flex:1}
+    .dominant{flex:1;min-height:120px;border-radius:var(--chip-radius);display:flex;align-items:flex-end;padding:12px;color:#072;box-shadow:inset 0 -18px 40px rgba(0,0,0,0.06)}
+    .dominant .label{font-weight:600;background:rgba(255,255,255,0.85);padding:6px 10px;border-radius:999px;font-size:13px}
+    .accents{display:flex;flex-direction:column;gap:12px}
+    .accent-row{display:flex;gap:8px}
+    .accent{width:64px;height:40px;border-radius:8px;display:inline-block;box-shadow:0 4px 10px rgba(11,18,32,0.06)}
+    .legend{margin-top:16px;color:#334}
+    .sample-bar{height:44px;border-radius:10px;overflow:hidden;margin-top:12px;box-shadow:0 6px 20px rgba(9,15,25,0.04)}
+    .sample-gradient{height:100%;background:linear-gradient(90deg,var(--dominant-1),var(--dominant-2));}
+    .notes{margin-top:14px;color:#445;font-size:13px}
+    .json{margin-top:14px;padding:12px;background:#fbfcfd;border-radius:8px;border:1px solid #eef3f6;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#123}
+    /* Accessibility: label contrasts */
+    .dominant[data-which="dark"] .label{color:white;background:rgba(0,0,0,0.35)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Palette — Teal/Cyan + Yellow</h1>
+    <p class="meta">Dominant: teal/cyan &amp; yellow · Accent: red &amp; green · Saturation: medium · Temperature: cool</p>
+
+    <div class="row">
+      <div class="dominants">
+        <div class="dominant" style="background:var(--dominant-1);" data-which="dark">
+          <div class="label">Teal / Cyan</div>
+        </div>
+        <div class="dominant" style="background:var(--dominant-2);">
+          <div class="label">Muted Yellow</div>
+        </div>
+      </div>
+
+      <div class="accents">
+        <div class="accent-row">
+          <div class="accent" style="background:var(--accent-1)" title="Accent: red"></div>
+          <div class="accent" style="background:var(--accent-2)" title="Accent: green"></div>
+        </div>
+        <div style="font-size:12px;color:#556">Accent hues</div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div><strong>Sample blend</strong></div>
+      <div class="sample-bar"><div class="sample-gradient"></div></div>
+      <div class="notes">Notes: medium saturation, cool-leaning temperature — yellow is slightly desaturated to keep the overall feel cool. Use red/green sparingly as contrast accents.</div>
+
+      <pre class="json">{
+  "dominant_hues": ["teal/cyan", "yellow"],
+  "accent_hues": ["red", "green"],
+  "saturation_level": "medium",
+  "temperature_bias": "cool"
+}</pre>
+    </div>
+  </div>
+</body>
+</html>

@@ -19,6 +19,51 @@ from services.image_utils import embed_image_data
 import json
 from streamlit_sortables import sort_items
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
+import datetime
+
+# Module logger
+from services.logger_config import init_logging
+
+# Initialize centralized logging (single stdout handler)
+init_logging()
+logger = logging.getLogger(__name__)
+
+# Ensure uncaught exceptions are logged to console
+import sys
+def _log_unhandled_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Let default handler run for KeyboardInterrupt
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
+sys.excepthook = _log_unhandled_exception
+
+# Wrap Streamlit's error/exception displayors to also log to console
+try:
+    _st_error_orig = st.error
+    def _st_error_with_log(msg, *args, **kwargs):
+        try:
+            logger.error("Streamlit error: %s", msg)
+        except Exception:
+            pass
+        return _st_error_orig(msg, *args, **kwargs)
+    st.error = _st_error_with_log
+except Exception:
+    pass
+
+try:
+    _st_exception_orig = st.exception
+    def _st_exception_with_log(exc, *args, **kwargs):
+        try:
+            logger.exception("Streamlit exception: %s", exc)
+        except Exception:
+            pass
+        return _st_exception_orig(exc, *args, **kwargs)
+    st.exception = _st_exception_with_log
+except Exception:
+    pass
 
 # Load environment variables from .env file
 load_dotenv()
@@ -27,6 +72,22 @@ load_dotenv()
 ANALYSIS_PROMPT_VERSION = "2.3-signature"  # v2.3: Enhanced commentary to capture profile's aesthetic signature (tone, color, texture) for better DNA and recommendations
 
 st.set_page_config(page_title="MidJourney Profile Tester", layout="wide")
+
+# Load palette controls from URL query params (allows iframe controls to set them)
+try:
+    qp = st.experimental_get_query_params()
+    for k, v in qp.items():
+        if k.startswith('palette_source_'):
+            # value may be a list
+            val = v[0] if isinstance(v, list) and v else (v if not isinstance(v, list) else '')
+            if val:
+                st.session_state.setdefault(k, val)
+        if k.startswith('palette_norm_'):
+            val = v[0] if isinstance(v, list) and v else (v if not isinstance(v, list) else '')
+            if val:
+                st.session_state.setdefault(k, True if str(val) in ('1', 'true', 'True') else False)
+except Exception:
+    pass
 
 
 def get_test_token(test_name: str) -> str:
@@ -39,19 +100,32 @@ def get_test_token(test_name: str) -> str:
         tests = tpm.load_tests()
         # Exact match
         for t in tests:
-            if t.get('title') == test_name and t.get('guid'):
-                return t.get('guid')
+            # Prefer explicit `id` (migration target) then `guid` for compatibility
+            if t.get('title') == test_name and (t.get('id') or t.get('guid')):
+                return t.get('id') if t.get('id') else t.get('guid')
         # Case-insensitive trimmed match
         key = test_name.strip().lower()
         for t in tests:
-            if t.get('title') and t.get('title').strip().lower() == key and t.get('guid'):
-                return t.get('guid')
-        # Match by id (safe id)
+            if t.get('title') and t.get('title').strip().lower() == key and (t.get('id') or t.get('guid')):
+                return t.get('id') if t.get('id') else t.get('guid')
+        # Match by id (safe id) or guid
         for t in tests:
             if t.get('id') and t.get('id') == test_name:
-                return t.get('guid') if t.get('guid') else t.get('id')
+                return t.get('id')
+            if t.get('guid') and t.get('guid') == test_name:
+                return t.get('guid')
     except Exception:
         pass
+    return test_name.replace(' ', '_').replace('/', '_')
+
+
+def canonical_test_key(test_obj: dict, test_name: str) -> str:
+    """Return canonical key for a test object: prefer `id`, then `guid`, else safe title."""
+    if test_obj:
+        if test_obj.get('id'):
+            return test_obj.get('id')
+        if test_obj.get('guid'):
+            return test_obj.get('guid')
     return test_name.replace(' ', '_').replace('/', '_')
 
 # Global parameters persistence file
@@ -127,6 +201,118 @@ def optimize_image_for_storage(img, max_size=1024, quality=90):
         img = img.convert('RGB')
     
     return img
+
+
+def _hue_to_hex(hue_name: str) -> str:
+    map_tbl = {
+        'teal/cyan': '#2aa6a0', 'teal': '#2aa6a0', 'cyan': '#2aa6a0',
+        'yellow': '#e6c85b', 'red': '#e04f4f', 'green': '#4fc37a',
+        'blue': '#3498db', 'orange': '#d98b3c', 'magenta': '#b84fae',
+        'pink': '#e08aa6', 'purple': '#7b61ff', 'brown': '#8b5a2b',
+        'black': '#0b0b0b', 'white': '#ffffff', 'gray': '#9aa0a6'
+    }
+    return map_tbl.get(hue_name.lower(), '#cfcfd0')
+
+
+def render_palette_swatch(palette, width: int = 260, height: int = 80, source: str = None, normalized: bool = False, test_key: str = None):
+    """Render a compact palette swatch via Streamlit components.
+
+    `palette` may be:
+    - a dict containing `dominant_hexs` and/or `accent_hexs` (lists of hex strings),
+    - a dict with `dominant_hues`/`accent_hues` (names), or
+    - a free-form string describing the palette.
+    """
+    try:
+        dom_hexs = []
+        acc_hexs = []
+
+        if isinstance(palette, dict):
+            dom_hexs = palette.get('dominant_hexs') or []
+            acc_hexs = palette.get('accent_hexs') or []
+            if not dom_hexs and palette.get('dominant_hues'):
+                dom_hexs = [_hue_to_hex(h) for h in palette.get('dominant_hues')[:2]]
+            if not acc_hexs and palette.get('accent_hues'):
+                acc_hexs = [_hue_to_hex(h) for h in palette.get('accent_hues')[:2]]
+        else:
+            text = str(palette or '')
+            for k in ['teal', 'cyan', 'yellow', 'red', 'green', 'blue', 'orange', 'magenta', 'pink', 'purple']:
+                if k in text.lower():
+                    if k in ('red', 'green', 'magenta', 'pink', 'orange'):
+                        acc_hexs.append(_hue_to_hex(k))
+                    else:
+                        dom_hexs.append(_hue_to_hex(k))
+
+        if not dom_hexs:
+            dom_hexs = [_hue_to_hex('teal'), _hue_to_hex('yellow')]
+        if not acc_hexs:
+            acc_hexs = [_hue_to_hex('red'), _hue_to_hex('green')]
+
+        while len(dom_hexs) < 2:
+            dom_hexs.append(dom_hexs[0])
+        while len(acc_hexs) < 2:
+            acc_hexs.append(acc_hexs[0])
+
+        norm_text = "Adjusted" if normalized else "Raw"
+        src_text = source if source else "Source: analyzer/sample"
+
+        # If a test_key is provided, embed lightweight controls inside the iframe
+        controls_html = ""
+        if test_key:
+            esc_key = str(test_key).replace('"', '\\"')
+            sel_val = source or "OpenAI (analyzer)"
+            chk_checked = 'checked' if normalized else ''
+            controls_html = (
+                "<div style=\"margin-bottom:8px;font-size:13px;color:#374151\">Controls: </div>"
+                "<div style=\"display:flex;gap:8px;align-items:center;margin-bottom:8px\">"
+                "<select id=\"ps\" style=\"font-size:13px;padding:6px;border-radius:6px\">"
+                f"<option{' selected' if sel_val.startswith('OpenAI') else ''}>OpenAI (analyzer)</option>"
+                f"<option{' selected' if sel_val.startswith('k-means') else ''}>k-means</option>"
+                f"<option{' selected' if sel_val.startswith('median-cut') else ''}>median-cut</option>"
+                "</select>"
+                "<label style=\"font-size:13px;margin-left:6px;display:flex;align-items:center;gap:6px\">"
+                f"<input id=\"pn\" type=\"checkbox\" {chk_checked}/> Adjust"
+                "</label>"
+                "</div>"
+                "<script>"
+                "const applyToParent = ()=>{"
+                "try{"
+                "const sel = document.getElementById('ps').value;"
+                "const chk = document.getElementById('pn').checked ? '1' : '0';"
+                "const params = new URLSearchParams(window.top.location.search);"
+                "params.set('palette_source_' + encodeURIComponent('" + esc_key + "'), sel);"
+                "params.set('palette_norm_' + encodeURIComponent('" + esc_key + "'), chk);"
+                "window.top.location.search = '?' + params.toString();"
+                "}catch(e){console.log(e)}"
+                "}"
+                "document.getElementById('ps').addEventListener('change', applyToParent);"
+                "document.getElementById('pn').addEventListener('change', applyToParent);"
+                "</script>"
+            )
+
+        html = f"""
+<div style="font-family:Inter, system-ui, Arial; max-width:{width}px">
+    <div style="margin-bottom:6px;font-weight:600;font-size:14px">Palette preview</div>
+    <div style="margin-bottom:6px;font-size:12px;color:#6b7280">{src_text} • {norm_text}</div>
+                                        {controls_html}
+    <div style="display:flex;gap:8px;align-items:center">
+        <div style="flex:1;display:flex;border-radius:10px;overflow:hidden;height:{height}px;box-shadow:0 6px 18px rgba(11,18,32,0.06)">
+            <div style="flex:1;background:{dom_hexs[0]}"></div>
+            <div style="flex:1;background:{dom_hexs[1]}"></div>
+        </div>
+        <div style="width:84px;display:flex;flex-direction:column;gap:8px">
+            <div style="height:{int(height/2)-6}px;border-radius:8px;background:{acc_hexs[0]};box-shadow:0 4px 10px rgba(11,18,32,0.06)"></div>
+            <div style="height:{int(height/2)-6}px;border-radius:8px;background:{acc_hexs[1]};box-shadow:0 4px 10px rgba(11,18,32,0.06)"></div>
+        </div>
+    </div>
+</div>
+"""
+
+        # Allocate extra iframe height when the inline controls are present so they aren't clipped
+        iframe_extra = 80 if controls_html else 24
+        iframe_height = height + iframe_extra
+        components.html(html, height=iframe_height, scrolling=False)
+    except Exception:
+        return
 
 def find_image_file(output_dir, profile_id, test_name, image_num=None):
     """
@@ -210,14 +396,29 @@ def get_profile_image_files(profile_id):
 def get_existing_profile_ids():
     """Get list of profile IDs with caching to avoid expensive list operations."""
     storage = get_storage()
-    all_files = storage.list_files("profile_results", "*")
-    # Extract unique directory names (profile IDs)
     profile_dirs = set()
-    for file_path in all_files:
-        # file_path is like "profile_results/profile_id/filename"
+
+    # Profiles that have result folders (images)
+    all_result_files = storage.list_files("profile_results", "*")
+    for file_path in all_result_files:
         parts = file_path.split('/')
-        if len(parts) >= 2 and parts[1] != 'baseline':
+        if len(parts) >= 2 and parts[1] and parts[1] != 'baseline':
             profile_dirs.add(parts[1])
+
+    # Also include profiles that only have an analysis JSON
+    analysis_files = storage.list_files("profile_analyses", "*_analysis.json")
+    for af in analysis_files:
+        # af is like 'profile_analyses/<profile>_analysis.json' or 'profile_analyses/baseline_analysis.json'
+        parts = af.split('/')
+        if not parts:
+            continue
+        filename = parts[-1]
+        if not filename.endswith('_analysis.json'):
+            continue
+        profile_id = filename[:-len('_analysis.json')]
+        if profile_id and profile_id != 'baseline' and not profile_id.startswith('test_'):
+            profile_dirs.add(profile_id)
+
     return sorted(list(profile_dirs))
 
 @st.cache_data(ttl=60, hash_funcs={"storage.S3Storage": lambda _: None, "storage.LocalStorage": lambda _: None})
@@ -294,7 +495,7 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
     # Create token for filename: prefer test GUID if available, else safe title
     try:
         test_obj = tpm.get_test_by_title(test_name)
-        token = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name.replace(' ', '_').replace('/', '_')
+        token = canonical_test_key(test_obj, test_name)
     except Exception:
         token = test_name.replace(' ', '_').replace('/', '_')
     if image_num:
@@ -305,7 +506,7 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
     
     # Check if image exists (handles both .jpg and .png)
     existing_filepath = find_image_file(output_dir, profile_id if profile_id else 'baseline', test_name, image_num)
-    if existing_filepath:
+    if existing_filepath is not None:
         # Optionally show image preview (Tests page may prefer a compact grid instead)
         if show_preview:
             img_display = load_image_cached(str(existing_filepath))
@@ -337,7 +538,7 @@ def render_test_upload(profile_id, test_name, output_dir, idx, image_num=None, s
                         test_obj = tpm.get_test_by_title(test_name)
                     except Exception:
                         test_obj = None
-                    rating_key = (test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name)
+                    rating_key = canonical_test_key(test_obj, test_name)
                     removed = False
                     if rating_key in analysis_data.get('ratings', {}):
                         try:
@@ -503,238 +704,9 @@ def batch_ai_rate_images(uploaded_tests, profile_id, profile_label="", existing_
     Returns:
         Dict with profile_label, profile_dna, and ratings
     """
-    import openai
-    from openai import OpenAI
-    import config
-    
-    # Get API key from config (which loads from .env)
-    api_key = config.OPENAI_API_KEY
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY not set in .env file")
-    
-    client = OpenAI(api_key=api_key)
-    
-    # Filter out already-rated tests. Existing ratings may be stored under GUIDs
-    # or legacy title keys, so check both when deciding which tests remain unrated.
-    if existing_ratings:
-        unrated_tests = []
-        for name, path, row in uploaded_tests:
-            try:
-                test_obj = tpm.get_test_by_title(name)
-            except Exception:
-                test_obj = None
-            guid = test_obj.get('guid') if test_obj and test_obj.get('guid') else None
-            # Skip if either the title or the GUID is already present in existing_ratings
-            if name in existing_ratings or (guid and guid in existing_ratings):
-                continue
-            unrated_tests.append((name, path, row))
-    else:
-        unrated_tests = uploaded_tests
-    
-    # Load prompt template from file (use pathlib.Path for local filesystem)
-    import pathlib
-    template_path = pathlib.Path(__file__).parent / "analysis_prompt_template.txt"
-    with open(template_path, 'r') as f:
-        prompt_template = f.read()
-    
-    # Format the template with profile_id using simple replace to avoid
-    # issues with un-escaped braces in the template JSON examples.
-    prompt_text = prompt_template.replace("{profile_id}", str(profile_id))
-    
-    # Prepare batch message content
-    message_content = [
-        {
-            "type": "text",
-            "text": prompt_text + "\n\n**Test Images:**"
-        }
-    ]
-    
-    # Use unrated tests, limit to first 15 to avoid payload size issues
-    batch_tests = unrated_tests[:15]
-    
-    if len(unrated_tests) == 0:
-        return None  # Nothing to rate
-    
-    # Add each image with its test context
-    for idx, (test_name, filepath_or_list, row) in enumerate(batch_tests, 1):
-        # Check if this is a multi-image test (filepath is a list)
-        is_multi_image = isinstance(filepath_or_list, list)
-        
-        if is_multi_image:
-            # Void test with multiple images
-            message_content.append({
-                "type": "text",
-                "text": f"\n\n**Test {idx}: {test_name}**\nSection: {row['Section']}\nPrompt: {row['Prompt']}\n\n**Purpose**: This test uses {len(filepath_or_list)} unseeded images to reveal pure profile bias. Analyze the COMMONALITIES across all images - recurring visual patterns, color schemes, lighting preferences, textures, and compositional habits that represent the profile's natural defaults."
-            })
-            
-            # Add all images for this void test
-            for img_num, filepath in enumerate(filepath_or_list, 1):
-                # Read and resize image
-                img = load_image(filepath)
-                
-                # Resize to max 512px on longest side
-                max_size = 512
-                ratio = max_size / max(img.size)
-                if ratio < 1:
-                    new_size = tuple(int(dim * ratio) for dim in img.size)
-                    img = img.resize(new_size, Image.Resampling.LANCZOS)
-                
-                # Convert to JPEG and embed inline (shared helper)
-                img_data = embed_image_data(img, filepath)
-                
-                # Add image with label
-                message_content.append({
-                    "type": "text",
-                    "text": f"Image {img_num}/{len(filepath_or_list)}:"
-                })
-                message_content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{img_data}",
-                        "detail": "low"
-                    }
-                })
-        else:
-            # Single image test (normal)
-            filepath = filepath_or_list
-            
-            # Read and resize image to reduce payload size
-            img = load_image(filepath)
-            
-            # Resize to max 512px on longest side (OpenAI low detail uses 512x512)
-            max_size = 512
-            ratio = max_size / max(img.size)
-            if ratio < 1:
-                new_size = tuple(int(dim * ratio) for dim in img.size)
-                img = img.resize(new_size, Image.Resampling.LANCZOS)
-            
-            # Convert to JPEG and embed inline (shared helper)
-            img_data = embed_image_data(img, filepath)
-            
-            # Add test context
-            message_content.append({
-                "type": "text",
-                "text": f"\n\n**Test {idx}: {test_name}**\nPrompt: {row['Prompt']}\nSection: {row['Section']}"
-            })
-            
-            # Add image
-            message_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{img_data}",
-                    "detail": "low"  # Use low detail for cost efficiency
-                }
-            })
-    
-    # Add format instructions - build example with actual test names
-    example_test_name = batch_tests[0][0] if batch_tests else "Alpine Stream"
-    message_content.append({
-        "type": "text",
-        "text": f"""
-
-**Output Format (JSON):**
-IMPORTANT: Use the actual test names (e.g., "{example_test_name}") as the keys in the "ratings" object, NOT "Test 1", "Test 2", etc.
-
-```json
-{{
-  "ratings": {{
-    "{example_test_name}": {{
-      "affinity": "native_fit|workable|resistant",
-      "score": 8,
-      "confidence": 0.9,
-      "commentary": "Commentary here...",
-      "color-palette": "Color palette description here..."
-    }}
-  }}
-}}
-```
-
-Respond with ONLY the JSON, no other text."""
-    })
-    
-    # Call OpenAI API (centralized via services.ai_client)
-    try:
-        from services.ai_client import chat_completion_parse_json
-        from services.gpt_config import DEFAULT_MODEL, DEFAULT_MAX_COMPLETION_TOKENS
-        parsed, response_text, response_obj = chat_completion_parse_json(
-            client=client,
-            messages=[{"role": "user", "content": message_content}],
-            model=DEFAULT_MODEL,
-            max_completion_tokens=DEFAULT_MAX_COMPLETION_TOKENS,
-        )
-        result = parsed
-        if result is None:
-            # Write a debug dump and surface an error (preserve previous behavior)
-            try:
-                dump_dir = pathlib.Path("profile_analyses/backups")
-                dump_dir.mkdir(parents=True, exist_ok=True)
-                dump_file = dump_dir / f"{profile_id or 'baseline'}_bad_response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                try:
-                    prompt_preview = (message_content if isinstance(message_content, str) else str(message_content))[:4000]
-                except Exception:
-                    prompt_preview = ''
-                resp_repr = None
-                try:
-                    resp_repr = str(response_obj)[:5000] if response_obj is not None else None
-                except Exception:
-                    resp_repr = None
-                dump_payload = {
-                    "test": "batch",
-                    "profile": profile_id,
-                    "prompt_preview": prompt_preview,
-                    "response_text": response_text,
-                    "response_object": resp_repr
-                }
-                dump_file.write_text(json.dumps(dump_payload, indent=2))
-                logger.error("Failed to parse JSON response for batch; dump written to %s", str(dump_file))
-                st.error(f"❌ OpenAI returned non-JSON response for batch. Saved debug dump: {dump_file.name}")
-            except Exception:
-                logger.exception("Failed to write bad-response dump for batch")
-            return None
-        
-        # Fix test names: remove "Test N: " prefix OR map "Test N" to actual test name
-        import re
-        if 'ratings' in result:
-            # Create a mapping of test index to test name
-            test_index_map = {str(idx): name for idx, (name, _, _) in enumerate(batch_tests, 1)}
-            
-            fixed_ratings = {}
-            for key, value in result['ratings'].items():
-                # Check if it's "Test N: Name" format - extract Name
-                match = re.match(r'^Test (\d+): (.+)$', key)
-                if match:
-                    clean_key = match.group(2)
-                # Check if it's just "Test N" format - map to actual name
-                elif re.match(r'^Test (\d+)$', key):
-                    test_num = re.match(r'^Test (\d+)$', key).group(1)
-                    clean_key = test_index_map.get(test_num, key)
-                else:
-                    clean_key = key
-                fixed_ratings[clean_key] = value
-            result['ratings'] = fixed_ratings
-
-            # Apply deterministic V1 scoring to each returned rating when checks are present
-            try:
-                from services.score_service import compute_score_and_metrics
-
-                for name, r in result.get('ratings', {}).items():
-                    try:
-                        if isinstance(r, dict) and isinstance(r.get('checks'), dict):
-                            computed = compute_score_and_metrics(r.get('checks'), r.get('weights', {}))
-                            r['score'] = round(float(computed['score']), 2)
-                            r['affinity'] = computed['affinity']
-                            r['confidence'] = float(computed['confidence'])
-                            r['metrics_v1'] = computed['metrics_v1']
-                    except Exception:
-                        logger.exception("Failed to apply deterministic scoring for rating %s", name)
-            except Exception:
-                logger.exception("Failed to compute deterministic V1 metrics for batch results")
-
-        return result
-    
-    except Exception as e:
-        st.error(f"OpenAI API Error: {e}")
-        raise
+    # Delegate to service implementation
+    from services.batch_runner import batch_ai_rate_images as _batch_impl
+    return _batch_impl(uploaded_tests, profile_id, profile_label=profile_label, existing_ratings=existing_ratings)
 
 def finalize_profile_summary(profile_id, analysis_data):
     """
@@ -971,6 +943,35 @@ with st.sidebar.expander("Debug Tools", expanded=False):
         except Exception as e:
             st.write("Error listing storage:", e)
 
+    # Toggle for S3 console logs (default off)
+    try:
+        from dotenv import set_key, find_dotenv
+        env_path = find_dotenv(raise_error_if_not_found=False)
+    except Exception:
+        set_key = None
+        env_path = None
+
+    s3_default = os.environ.get('S3_CONSOLE_LOGS', 'false').lower() in ('1', 'true', 'yes')
+    s3_toggle = st.checkbox("Enable S3 console logs", value=s3_default, key="ui_s3_console_logs")
+    # Apply immediately for current process
+    os.environ['S3_CONSOLE_LOGS'] = 'true' if s3_toggle else 'false'
+    if s3_toggle:
+        st.caption("S3 console logs enabled (for this process).")
+    else:
+        st.caption("S3 console logs disabled (for this process).")
+
+    # Optionally persist to .env
+    if set_key and st.button("Persist S3 logging to .env", key="persist_s3_env"):
+        try:
+            # Ensure .env file exists
+            if not env_path:
+                # create .env in project root
+                env_path = str(Path('.').resolve() / '.env')
+            set_key(env_path, 'S3_CONSOLE_LOGS', 'true' if s3_toggle else 'false')
+            st.success(f"Wrote S3_CONSOLE_LOGS={'true' if s3_toggle else 'false'} to {env_path}")
+        except Exception as e:
+            st.error(f"Failed to persist .env: {e}")
+
 # Only show UI chrome when NOT in fullscreen
 if not st.session_state.fullscreen:
     st.title("🎨 MidJourney Profile Tester")
@@ -1048,21 +1049,28 @@ if not st.session_state.fullscreen:
                 return display
             
             profile_options = [""] + existing_profiles
+
+            # Debugging aid: show total profile count and allow expanding full list
+            try:
+                st.caption(f"Profiles found: {len(existing_profiles)}")
+                with st.expander("Debug: list all profiles (expand to view)", expanded=False):
+                    st.write(existing_profiles)
+            except Exception:
+                pass
             
             # Restore previous selection if it exists in the list
             default_index = 0
             if st.session_state.profile_id in profile_options:
                 default_index = profile_options.index(st.session_state.profile_id)
             
-            selected_index = st.selectbox(
+            selected_profile = st.selectbox(
                 "Select existing profile",
-                options=range(len(profile_options)),
-                format_func=lambda i: format_profile_option(profile_options[i]),
+                options=profile_options,
+                format_func=lambda p: format_profile_option(p),
                 index=default_index,
                 key="profile_selector_dropdown",
                 help="Choose a profile you've already tested (✅ = all tests complete, ✓ = current version, ⚠️ = outdated)"
             )
-            selected_profile = profile_options[selected_index]
         else:
             selected_profile = ""
             st.info("No existing profiles found. Enter a new profile ID below.")
@@ -1640,8 +1648,8 @@ elif st.session_state.page == 'rate':
                 test_obj = tpm.get_test_by_title(test_name)
             except Exception:
                 test_obj = None
-            guid = test_obj.get('guid') if test_obj and test_obj.get('guid') else None
-            if test_name in rated_keys or (guid and guid in rated_keys):
+            canonical = canonical_test_key(test_obj, test_name)
+            if test_name in rated_keys or (canonical and canonical in rated_keys):
                 rated_tests += 1
         
         # Check analysis version
@@ -1690,8 +1698,8 @@ elif st.session_state.page == 'rate':
                         test_obj = tpm.get_test_by_title(name)
                     except Exception:
                         test_obj = None
-                    guid = test_obj.get('guid') if test_obj and test_obj.get('guid') else None
-                    if name in rated_keys or (guid and guid in rated_keys):
+                    canonical = canonical_test_key(test_obj, name)
+                    if name in rated_keys or (canonical and canonical in rated_keys):
                         already_rated_names.append(name)
                 unrated_count = len(uploaded_tests) - len(already_rated_names)
                 
@@ -1819,8 +1827,8 @@ elif st.session_state.page == 'rate':
                         test_obj = tpm.get_test_by_title(name)
                     except Exception:
                         test_obj = None
-                    guid = test_obj.get('guid') if test_obj and test_obj.get('guid') else None
-                    if name in rated_keys or (guid and guid in rated_keys):
+                    canonical = canonical_test_key(test_obj, name)
+                    if name in rated_keys or (canonical and canonical in rated_keys):
                         already_rated_names.append(name)
                 unrated_count = len(uploaded_tests) - len(already_rated_names)
                 
@@ -1847,22 +1855,22 @@ elif st.session_state.page == 'rate':
                             with st.spinner("🎨 Analyzing all test results to finalize Profile DNA and Aesthetic Label..."):
                                 try:
                                     # Debug: show before state
-                                    print(f"🔍 DEBUG Before finalize: label='{analysis_data.get('profile_label', 'MISSING')}'")
-                                    
+                                    logger.debug("🔍 DEBUG Before finalize: label='%s'", analysis_data.get('profile_label', 'MISSING'))
+
                                     if finalize_profile_summary(display_profile_id, analysis_data):
                                         # Debug: show after finalize
                                         label_text = analysis_data.get('profile_label', '(none)')
                                         dna_count = len(analysis_data.get('profile_dna', []))
                                         affinity_summary = analysis_data.get('affinity_summary', {})
-                                        print(f"🔍 DEBUG After finalize: label='{label_text}', dna_count={dna_count}, affinity_summary={list(affinity_summary.keys())}")
-                                        
+                                        logger.debug("🔍 DEBUG After finalize: label='%s', dna_count=%d, affinity_summary=%s", label_text, dna_count, list(affinity_summary.keys()))
+
                                         save_analysis(display_profile_id, analysis_data)
-                                        print(f"🔍 DEBUG After save: Saved to {display_profile_id}_analysis.json")
-                                        
+                                        logger.debug("🔍 DEBUG After save: Saved to %s_analysis.json", display_profile_id)
+
                                         # Verify what was saved
                                         import json
                                         saved_data = get_storage().read_json(str(analysis_file))
-                                        print(f"🔍 DEBUG Verification: Read back label='{saved_data.get('profile_label', 'MISSING')}'")
+                                        logger.debug("🔍 DEBUG Verification: Read back label='%s'", saved_data.get('profile_label', 'MISSING'))
                                         
                                         # Store success message in session state before rerun
                                         st.session_state.finalize_message = f"✨ Profile summary finalized!\n\n**Label:** {label_text}\n\n**DNA Traits:** {dna_count}"
@@ -1930,10 +1938,11 @@ elif st.session_state.page == 'rate':
                                                 test_obj = tpm.get_test_by_title(test_name)
                                             except Exception:
                                                 test_obj = None
-                                            write_key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                            # Always compute canonical write key (prefer id/guid, fallback to sanitized title)
+                                            write_key = canonical_test_key(test_obj, test_name)
                                             analysis_data.setdefault('ratings', {})
                                             analysis_data['ratings'][write_key] = rating_data
-                                            # remove legacy title key if GUID used
+                                            # remove legacy title key if GUID/id used
                                             if write_key != test_name and test_name in analysis_data['ratings']:
                                                 try:
                                                     del analysis_data['ratings'][test_name]
@@ -2132,7 +2141,7 @@ elif st.session_state.page == 'rate':
                 test_obj = tpm.get_test_by_title(test_name)
             except Exception:
                 test_obj = None
-            test_key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+            test_key = canonical_test_key(test_obj, test_name)
             
             # Check filter
             is_rated = (test_key in ratings) or (test_name in ratings)
@@ -2266,11 +2275,126 @@ elif st.session_state.page == 'rate':
                     # Color palette field
                     color_palette = st.text_input(
                         "Dominant Color Patterns",
-                        value=existing_rating.get('color-palette', ''),
+                        value=existing_rating.get('color-palette') or existing_rating.get('color_palette', ''),
                         placeholder="e.g., consistent warm sepia, recurring blue-purple tones...",
                         key=f"color_palette_{test_name}",
                         help="What color schemes appear repeatedly?"
                     )
+                    # Arrange palette controls and swatch into two columns so controls remain visible
+                    try:
+                        existing_pal = existing_rating.get('color_palette') or existing_rating.get('color-palette')
+                    except Exception:
+                        existing_pal = None
+
+                    left_col, right_col = st.columns([1, 1])
+
+                    # Controls go in the left column
+                    with left_col:
+                        st.markdown("#### 🎛️ Palette controls")
+                        has_analyzer_hexs = False
+                        try:
+                            if isinstance(existing_pal, dict):
+                                dom_hexs = existing_pal.get('dominant_hex') or existing_pal.get('dominant_hexs')
+                                acc_hexs = existing_pal.get('accent_hex') or existing_pal.get('accent_hexs')
+                                has_analyzer_hexs = bool(dom_hexs or acc_hexs)
+                        except Exception:
+                            has_analyzer_hexs = False
+
+                        # Always default to OpenAI as requested
+                        palette_source_default = 0
+                        palette_source = st.selectbox(
+                            "Palette source",
+                            options=["OpenAI (analyzer)", "k-means", "median-cut"],
+                            index=palette_source_default,
+                            key=f"palette_source_{test_name}",
+                            help="Choose how to derive color swatches when analyzer hexs are not available."
+                        )
+
+                        # Normalization toggle: apply analyzer-provided temperature/saturation
+                        norm_default = False
+                        try:
+                            if isinstance(existing_pal, dict):
+                                if existing_pal.get('temperature_bias') is not None or existing_pal.get('saturation_level') is not None:
+                                    norm_default = True
+                        except Exception:
+                            norm_default = False
+
+                        apply_norm = st.checkbox(
+                            "Apply analyzer temperature/saturation adjustments",
+                            value=norm_default,
+                            key=f"palette_norm_{test_name}",
+                            help="When enabled, adjusts sampled or analyzer hexes by the analysis' temperature_bias and saturation_level."
+                        )
+
+                    # Swatch renders in the right column
+                    with right_col:
+                        st.markdown("#### 🎨 Palette preview")
+                        # Show a small swatch preview for existing analysis palettes; prefer sampled colors from images
+                        try:
+                            if existing_pal:
+                                # If analysis stored a dict of hues, prefer analyzer hexs; otherwise try sampling across all images
+                                if isinstance(existing_pal, dict):
+                                    # Prefer analyzer-provided hex lists if present
+                                    dom_hexs = existing_pal.get('dominant_hex') or existing_pal.get('dominant_hexs')
+                                    acc_hexs = existing_pal.get('accent_hex') or existing_pal.get('accent_hexs')
+                                    if dom_hexs or acc_hexs:
+                                        pal = {
+                                            'dominant_hexs': dom_hexs or [],
+                                            'accent_hexs': acc_hexs or []
+                                        }
+                                        if apply_norm:
+                                            try:
+                                                from services.image_utils import adjust_palette_temperature_and_saturation
+                                                t_bias = existing_pal.get('temperature_bias', 0.0)
+                                                s_level = existing_pal.get('saturation_level', 1.0)
+                                                pal['dominant_hexs'] = adjust_palette_temperature_and_saturation(pal['dominant_hexs'], t_bias, s_level)
+                                                pal['accent_hexs'] = adjust_palette_temperature_and_saturation(pal['accent_hexs'], t_bias, s_level)
+                                            except Exception:
+                                                pass
+                                        render_palette_swatch(pal, width=240, height=64, source=palette_source, normalized=apply_norm, test_key=test_name)
+                                    else:
+                                        # Sample across all uploaded void images to build hexs
+                                        img_paths = [str(fp) for _, fp in image_files]
+                                        from services.image_utils import sample_palette_from_images
+                                        method = 'kmeans' if palette_source.startswith('k-means') else 'median_cut'
+                                        # If user selected OpenAI but no analyzer hexs exist, fall back to k-means
+                                        if palette_source.startswith('OpenAI') and not (dom_hexs or acc_hexs):
+                                            method = 'kmeans'
+                                        hexs = sample_palette_from_images(img_paths, n_colors=5, method=method)
+                                        if hexs:
+                                            dominants = hexs[:3]
+                                            accents = hexs[3:5]
+                                            # Apply normalization if requested (use analyzer metadata if present)
+                                            if apply_norm:
+                                                try:
+                                                    from services.image_utils import adjust_palette_temperature_and_saturation
+                                                    t_bias = existing_pal.get('temperature_bias', 0.0) if isinstance(existing_pal, dict) else 0.0
+                                                    s_level = existing_pal.get('saturation_level', 1.0) if isinstance(existing_pal, dict) else 1.0
+                                                    dominants = adjust_palette_temperature_and_saturation(dominants, t_bias, s_level)
+                                                    accents = adjust_palette_temperature_and_saturation(accents, t_bias, s_level)
+                                                except Exception:
+                                                    pass
+                                            pal = {'dominant_hexs': dominants, 'accent_hexs': accents}
+                                            # Persist sampled hexs into analysis_data for future renders
+                                            try:
+                                                existing_rating_cp = existing_rating.get('color_palette') if isinstance(existing_rating.get('color_palette'), dict) else {}
+                                                existing_rating_cp['dominant_hex'] = dominants
+                                                existing_rating_cp['accent_hex'] = accents
+                                                existing_rating_cp['dominant_hexs'] = dominants
+                                                existing_rating_cp['accent_hexs'] = accents
+                                                existing_rating['color_palette'] = existing_rating_cp
+                                                ratings[test_key] = existing_rating
+                                                analysis_data['ratings'] = ratings
+                                                save_analysis(display_profile_id, analysis_data)
+                                            except Exception:
+                                                pass
+                                            render_palette_swatch(pal, width=240, height=64, source=palette_source, normalized=apply_norm, test_key=test_name)
+                                        else:
+                                            render_palette_swatch(existing_pal, width=240, height=64, source=palette_source, normalized=apply_norm, test_key=test_name)
+                                else:
+                                    render_palette_swatch(existing_pal, width=240, height=64, source=palette_source, normalized=apply_norm, test_key=test_name)
+                        except Exception:
+                            render_palette_swatch(existing_pal, width=240, height=64, source=palette_source, normalized=apply_norm, test_key=test_name)
                     
                     # Commentary with AI button
                     col_comment, col_ai = st.columns([3, 1])
@@ -2278,7 +2402,7 @@ elif st.session_state.page == 'rate':
                     with col_comment:
                         commentary = st.text_area(
                             "Observations (optional)",
-                            value=existing_rating.get('commentary', ''),
+                            value=existing_rating.get('notes') or existing_rating.get('commentary', ''),
                             placeholder="What visual elements recur? Lighting patterns? Textures? Compositional habits?",
                             height=100,
                             key=f"commentary_{test_name}"
@@ -2290,64 +2414,33 @@ elif st.session_state.page == 'rate':
                             _test_obj = tpm.get_test_by_title(test_name)
                         except Exception:
                             _test_obj = None
-                        rating_key = _test_obj.get('guid') if _test_obj and _test_obj.get('guid') else test_name
+                        rating_key = canonical_test_key(_test_obj, test_name)
                         has_rating = rating_key in analysis_data.get('ratings', {}) or test_name in analysis_data.get('ratings', {})
                         ai_btn_label = "🔄 Re-rate" if has_rating else "🤖 AI Rate"
                         ai_btn_help = "Generate full AI rating (affinity, score, commentary) - will overwrite existing" if has_rating else "Generate full AI rating using OpenAI Vision"
                         
                         if st.button(ai_btn_label, key=f"ai_comment_{test_name}", help=ai_btn_help, type="secondary" if has_rating else "primary"):
                             with st.spinner("🤖 Analyzing with AI..."):
-                                # Get OpenAI API key from config
-                                import config
-                                api_key = config.OPENAI_API_KEY
-                                if not api_key:
-                                    st.error("⚠️ OPENAI_API_KEY not set in .env file")
-                                else:
+                                try:
                                     try:
-                                        # Collect all void image paths
-                                        void_image_paths = []
-                                        for img_num in range(1, 9):
-                                            fp = find_image_file(output_dir, display_profile_id, test_name, image_num=img_num)
-                                            if fp:
-                                                void_image_paths.append(fp)
-                                        
-                                        # Create a single-item batch with the list of void images
-                                        single_test = [(test_name, void_image_paths, row)]
-                                        
-                                        # Call the batch function (it will handle the void test)
-                                        try:
-                                            result = batch_ai_rate_images(single_test, display_profile_id, existing_ratings=None)
-                                        except Exception as e:
-                                            import traceback
-                                            tb = traceback.format_exc()
-                                            st.error(f"❌ Error: {e}")
-                                            st.exception(e)
-                                            result = None
-                                        
-                                        if result and 'ratings' in result:
-                                            returned_rating = result['ratings'].get(test_name)
-                                            if returned_rating:
-                                                write_key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
-                                                analysis_data.setdefault('ratings', {})
-                                                analysis_data['ratings'][write_key] = returned_rating
-                                                # remove legacy title key when GUID used
-                                                if write_key != test_name and test_name in analysis_data['ratings']:
-                                                    try:
-                                                        del analysis_data['ratings'][test_name]
-                                                    except Exception:
-                                                        pass
-                                                save_analysis(display_profile_id, analysis_data)
-                                                st.success("✨ Rating generated!")
-                                                import time
-                                                time.sleep(0.5)
-                                                st.rerun()
-                                            else:
-                                                st.error("❌ No rating returned from AI")
-                                        else:
-                                            st.error("❌ No rating returned from AI")
-                                    
-                                    except Exception as e:
-                                        st.error(f"❌ Error: {str(e)}")
+                                        test_obj = tpm.get_test_by_title(test_name)
+                                    except Exception:
+                                        test_obj = {'title': test_name}
+
+                                    from services.test_runner import run_test_for_profile
+
+                                    res = run_test_for_profile(test_obj, display_profile_id, find_image_file, save_analysis)
+                                    if res.get('status') == 'ok' and res.get('saved'):
+                                        st.success("✨ Rating generated!")
+                                        import time
+                                        time.sleep(0.5)
+                                        st.rerun()
+                                    elif res.get('status') == 'no_images':
+                                        st.warning("⚠️ No images uploaded for this test/profile")
+                                    else:
+                                        st.error(f"❌ Analysis failed: {res.get('error')}")
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
                     
                     # Save button
                     if st.button(f"💾 Save Rating for {test_name}", key=f"save_{test_name}"):
@@ -2389,7 +2482,7 @@ elif st.session_state.page == 'rate':
                     test_obj = tpm.get_test_by_title(test_name)
                 except Exception:
                     test_obj = None
-                test_key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                test_key = canonical_test_key(test_obj, test_name)
                 existing_rating = ratings.get(test_key) or ratings.get(test_name, {})
                 
                 # Check if just AI rated (to keep expander open and show message)
@@ -2476,11 +2569,73 @@ elif st.session_state.page == 'rate':
                         # Color palette field
                         color_palette = st.text_input(
                             "Color Palette",
-                            value=existing_rating.get('color-palette', ''),
+                            value=existing_rating.get('color-palette') or existing_rating.get('color_palette', ''),
                             placeholder="e.g., warm earth tones, vibrant neons, muted pastels...",
                             key=f"color_palette_{test_name}",
                             help="Describe the dominant color scheme"
                         )
+                        # Show a small swatch preview for existing analysis palettes; prefer sampled colors from the image
+                        try:
+                            existing_pal = existing_rating.get('color_palette') or existing_rating.get('color-palette')
+                            if existing_pal:
+                                try:
+                                    if isinstance(existing_pal, dict):
+                                        dom_hexs = existing_pal.get('dominant_hex') or existing_pal.get('dominant_hexs')
+                                        acc_hexs = existing_pal.get('accent_hex') or existing_pal.get('accent_hexs')
+                                        if dom_hexs or acc_hexs:
+                                            pal = {'dominant_hexs': dom_hexs or [], 'accent_hexs': acc_hexs or []}
+                                            render_palette_swatch(pal, width=220, height=64,
+                                                                 source=st.session_state.get(f"palette_source_{test_name}"),
+                                                                 normalized=st.session_state.get(f"palette_norm_{test_name}", False),
+                                                                 test_key=test_name)
+                                        else:
+                                            from services.image_utils import sample_palette_from_images
+                                            img_file = filepath
+                                            if img_file:
+                                                hexs = sample_palette_from_images([str(img_file)], n_colors=5)
+                                                if hexs:
+                                                    dominants = hexs[:3]
+                                                    accents = hexs[3:5]
+                                                    pal = {'dominant_hexs': dominants, 'accent_hexs': accents}
+                                                    # persist sampled hexs
+                                                    try:
+                                                        existing_rating_cp = existing_rating.get('color_palette') if isinstance(existing_rating.get('color_palette'), dict) else {}
+                                                        existing_rating_cp['dominant_hex'] = dominants
+                                                        existing_rating_cp['accent_hex'] = accents
+                                                        existing_rating_cp['dominant_hexs'] = dominants
+                                                        existing_rating_cp['accent_hexs'] = accents
+                                                        existing_rating['color_palette'] = existing_rating_cp
+                                                        ratings[test_key] = existing_rating
+                                                        analysis_data['ratings'] = ratings
+                                                        save_analysis(display_profile_id, analysis_data)
+                                                    except Exception:
+                                                        pass
+                                                    render_palette_swatch(pal, width=220, height=64,
+                                                                         source=st.session_state.get(f"palette_source_{test_name}"),
+                                                                         normalized=st.session_state.get(f"palette_norm_{test_name}", False),
+                                                                         test_key=test_name)
+                                                else:
+                                                    render_palette_swatch(existing_pal, width=220, height=64,
+                                                                         source=st.session_state.get(f"palette_source_{test_name}"),
+                                                                         normalized=st.session_state.get(f"palette_norm_{test_name}", False),
+                                                                         test_key=test_name)
+                                            else:
+                                                render_palette_swatch(existing_pal, width=220, height=64,
+                                                                     source=st.session_state.get(f"palette_source_{test_name}"),
+                                                                     normalized=st.session_state.get(f"palette_norm_{test_name}", False),
+                                                                     test_key=test_name)
+                                    else:
+                                        render_palette_swatch(existing_pal, width=220, height=64,
+                                                             source=st.session_state.get(f"palette_source_{test_name}"),
+                                                             normalized=st.session_state.get(f"palette_norm_{test_name}", False),
+                                                             test_key=test_name)
+                                except Exception:
+                                    render_palette_swatch(existing_pal, width=220, height=64,
+                                                         source=st.session_state.get(f"palette_source_{test_name}"),
+                                                         normalized=st.session_state.get(f"palette_norm_{test_name}", False),
+                                                         test_key=test_name)
+                        except Exception:
+                            pass
                         
                         # Commentary with AI generation option
                         col_comment, col_ai = st.columns([4, 1])
@@ -2488,7 +2643,7 @@ elif st.session_state.page == 'rate':
                         with col_comment:
                             commentary = st.text_area(
                                 "Commentary (optional)",
-                                value=existing_rating.get('commentary', ''),
+                                value=existing_rating.get('notes') or existing_rating.get('commentary', ''),
                                 placeholder="What works well? What struggles? Any specific observations...",
                                 height=100,
                                 key=f"commentary_{test_name}"
@@ -2500,41 +2655,34 @@ elif st.session_state.page == 'rate':
                                 _test_obj = tpm.get_test_by_title(test_name)
                             except Exception:
                                 _test_obj = None
-                            rating_key = _test_obj.get('guid') if _test_obj and _test_obj.get('guid') else test_name
+                            rating_key = canonical_test_key(_test_obj, test_name)
                             has_rating = rating_key in analysis_data.get('ratings', {}) or test_name in analysis_data.get('ratings', {})
                             ai_btn_label = "🔄 Re-rate" if has_rating else "🤖 AI Rate"
                             ai_btn_help = "Generate full AI rating (affinity, score, commentary) - will overwrite existing" if has_rating else "Generate full AI rating using OpenAI Vision"
                             
                             if st.button(ai_btn_label, key=f"ai_comment_{test_name}", help=ai_btn_help, type="secondary" if has_rating else "primary"):
                                 with st.spinner("🤖 Analyzing with AI..."):
-                                    # Get OpenAI API key from config
-                                    import config
-                                    api_key = config.OPENAI_API_KEY
-                                    if not api_key:
-                                        st.error("⚠️ OPENAI_API_KEY not set in .env file")
-                                    else:
+                                    try:
                                         try:
-                                            # Use the batch_ai_rate_images function for consistency
-                                            # Create a single-item batch
-                                            single_test = [(test_name, filepath, row)]
-                                            
-                                            # Call the batch function (it will handle just one image)
-                                            result = batch_ai_rate_images(single_test, display_profile_id, existing_ratings=None)
-                                            
-                                            if result and 'ratings' in result and test_name in result['ratings']:
-                                                # Update the rating
-                                                analysis_data['ratings'][test_name] = result['ratings'][test_name]
-                                                save_analysis(display_profile_id, analysis_data)
-                                                # Set flag to keep expander open after AI rating
-                                                _set_ai_rated_session_flags(test_name)
-                                                import time
-                                                time.sleep(0.3)
-                                                st.rerun()
-                                            else:
-                                                st.error("❌ No rating returned from AI")
-                                        
-                                        except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
+                                            test_obj = tpm.get_test_by_title(test_name)
+                                        except Exception:
+                                            test_obj = {'title': test_name}
+
+                                        from services.test_runner import run_test_for_profile
+
+                                        res = run_test_for_profile(test_obj, display_profile_id, find_image_file, save_analysis)
+                                        if res.get('status') == 'ok' and res.get('saved'):
+                                            _set_ai_rated_session_flags(test_name)
+                                            st.success("✨ Rating generated!")
+                                            import time
+                                            time.sleep(0.3)
+                                            st.rerun()
+                                        elif res.get('status') == 'no_images':
+                                            st.warning("⚠️ No images uploaded for this test/profile")
+                                        else:
+                                            st.error(f"❌ Analysis failed: {res.get('error')}")
+                                    except Exception as e:
+                                        st.error(f"❌ Error: {str(e)}")
                         
                         # Save button
                         if st.button("💾 Save Rating", key=f"save_{test_name}", type="primary"):
@@ -2830,7 +2978,7 @@ Be thorough and specific in your analysis."""
                                             test_obj = tpm.get_test_by_title(test_name)
                                         except Exception:
                                             test_obj = None
-                                        key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                        key = canonical_test_key(test_obj, test_name)
                                         rating = ratings.get(key) or ratings.get(test_name)
                                         if rating:
                                             score = rating['score']
@@ -2896,7 +3044,7 @@ Be thorough and specific in your analysis."""
                                                 test_obj = tpm.get_test_by_title(test_name)
                                             except Exception:
                                                 test_obj = None
-                                            key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                            key = canonical_test_key(test_obj, test_name)
                                             rating = ratings.get(key) or ratings.get(test_name)
                                             if rating:
                                                 affinity_emoji = {
@@ -3070,7 +3218,7 @@ elif st.session_state.page == 'recommend':
                                         test_obj = tpm.get_test_by_title(test_name)
                                     except Exception:
                                         test_obj = None
-                                    key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                    key = canonical_test_key(test_obj, test_name)
                                     rating = ratings.get(key) or ratings.get(test_name)
                                     if rating:
                                         score = rating['score']
@@ -3169,7 +3317,7 @@ elif st.session_state.page == 'recommend':
                                             test_obj = tpm.get_test_by_title(test_name)
                                         except Exception:
                                             test_obj = None
-                                        key = test_obj.get('guid') if test_obj and test_obj.get('guid') else test_name
+                                        key = canonical_test_key(test_obj, test_name)
                                         rating = ratings.get(key) or ratings.get(test_name)
                                         if rating:
                                             affinity_emoji = {
@@ -3180,14 +3328,33 @@ elif st.session_state.page == 'recommend':
                                             
                                             st.markdown(f"{affinity_emoji} **{test_name}**: {rating['score']}/10 ({rating['affinity']})")
                                             
-                                            # Show color palette if available
-                                            if 'color_palette' in rating and rating['color_palette']:
-                                                st.caption(f"🎨 Palette: {rating['color_palette']}")
-                                            
+                                            # Show color palette if available (accept either key format)
+                                            palette_val = rating.get('color-palette') or rating.get('color_palette')
+                                            if palette_val:
+                                                try:
+                                                    render_palette_swatch(palette_val, width=240, height=64,
+                                                                         source=st.session_state.get(f"palette_source_{test_name}"),
+                                                                         normalized=st.session_state.get(f"palette_norm_{test_name}", False),
+                                                                         test_key=test_name)
+                                                except Exception:
+                                                    st.caption(f"🎨 Palette: {palette_val}")
+
                                             # Show aesthetic commentary for the most relevant test (highest overlap)
-                                            if overlap == matching_tests[0][1] and 'commentary' in rating:
-                                                with st.container():
-                                                    st.markdown(f"*Aesthetic Analysis:* {rating['commentary']}")
+                                            if overlap == matching_tests[0][1]:
+                                                summary = rating.get('notes') or rating.get('commentary', '')
+                                                if summary:
+                                                    with st.container():
+                                                        st.markdown(f"*Aesthetic Analysis:* {summary}")
+
+                                                # Surface metrics and normalized weights when present
+                                                metrics = rating.get('metrics_v1') or {}
+                                                weights = metrics.get('weights') if metrics else None
+                                                if weights:
+                                                    try:
+                                                        norm = ", ".join([f"{k}={v:.2f}" for k, v in weights.items()])
+                                                        st.caption(f"Metrics weights: {norm}")
+                                                    except Exception:
+                                                        pass
                                 else:
                                     # Show average by category
                                     photo_scores = [r['score'] for k, r in ratings.items() if k.startswith('PHOTO_')]

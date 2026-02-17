@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 from storage import get_storage
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 storage = get_storage()
 
@@ -14,7 +17,7 @@ removed_tests = [
     'Surrealism Test',
 ]
 
-print('Checking for orphaned ratings in profile analyses...\n')
+logger.info('Checking for orphaned ratings in profile analyses...\n')
 
 total_orphaned = 0
 for filename in sorted(os.listdir('profile_analyses')):
@@ -30,10 +33,10 @@ for filename in sorted(os.listdir('profile_analyses')):
         orphaned = [test for test in removed_tests if test in ratings]
 
         if orphaned:
-            print(f'{profile_id}: {len(orphaned)} orphaned ratings')
+            logger.info('%s: %d orphaned ratings', profile_id, len(orphaned))
             for test in orphaned:
-                print(f'  - {test}')
+                logger.info('  - %s', test)
             total_orphaned += len(orphaned)
 
-print(f'\nTotal orphaned ratings across all profiles: {total_orphaned}')
-print('These ratings reference tests that no longer exist in test_prompts.json')
+logger.info('\nTotal orphaned ratings across all profiles: %d', total_orphaned)
+logger.info('These ratings reference tests that no longer exist in test_prompts.json')

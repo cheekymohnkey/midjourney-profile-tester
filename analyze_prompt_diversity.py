@@ -12,6 +12,9 @@ import math
 
 from storage import get_storage
 from test_prompts_manager import load_tests
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def tokenize(text: str):
@@ -23,7 +26,7 @@ def main():
 
     tests = load_tests()
     if not tests:
-        print("No tests found in test_prompts.json")
+        logger.info('No tests found in test_prompts.json')
         return
 
     total = len(tests)
@@ -51,23 +54,23 @@ def main():
     for t in tests:
         sections[t.get('section', 'unspecified')] += 1
 
-    print('=' * 80)
-    print('PROMPT DIVERSITY REPORT')
-    print('=' * 80)
-    print(f"Total tests: {total}")
-    print(f"Unique prompt texts: {unique_prompts}")
-    print(f"Unique titles: {unique_titles}")
-    print(f"Average prompt length (chars): {avg_len:.1f}")
-    print(f"Median prompt length (chars): {median_len}")
-    print('')
-    print('Top 20 words (excluding small stopwords):')
+    logger.info('%s', '=' * 80)
+    logger.info('PROMPT DIVERSITY REPORT')
+    logger.info('%s', '=' * 80)
+    logger.info('Total tests: %d', total)
+    logger.info('Unique prompt texts: %d', unique_prompts)
+    logger.info('Unique titles: %d', unique_titles)
+    logger.info('Average prompt length (chars): %.1f', avg_len)
+    logger.info('Median prompt length (chars): %d', median_len)
+    logger.info('')
+    logger.info('Top 20 words (excluding small stopwords):')
     for w, c in word_counts.most_common(20):
-        print(f"  {w:15} {c}")
+        logger.info('  %s %d', w, c)
 
-    print('\nSection distribution:')
+    logger.info('\nSection distribution:')
     for s, c in sections.most_common():
         pct = (c / total) * 100 if total else 0
-        print(f"  {s:25} {c:4} ({pct:.1f}%)")
+        logger.info('  %s %4d (%.1f%%)', s, c, pct)
 
     # Optionally scan profile analyses to report coverage of prompts
     try:
@@ -91,9 +94,9 @@ def main():
             covered.update(ratings.keys())
 
         coverage_count = len(covered & set(titles))
-        print('\nAnalysis coverage:')
-        print(f"  Analysis files found: {len(files)}")
-        print(f"  Titles covered by at least one analysis rating: {coverage_count}/{unique_titles}")
+        logger.info('\nAnalysis coverage:')
+        logger.info('  Analysis files found: %d', len(files))
+        logger.info('  Titles covered by at least one analysis rating: %d/%d', coverage_count, unique_titles)
     except Exception:
         pass
 

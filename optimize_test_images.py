@@ -12,6 +12,9 @@ from test_prompts_manager import load_tests
 from pathlib import Path
 from PIL import Image
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 def load_valid_tests():
     """Load test_prompts.json and return set of valid test titles."""
@@ -46,32 +49,32 @@ def resize_and_convert_image(img_path, max_size=1024, quality=90):
         new_file_size = os.path.getsize(new_path)
         return new_path, original_size, new_file_size
     except Exception as e:
-        print(f"  ❌ Error processing {img_path.name}: {e}")
+        logger.exception('  ❌ Error processing %s: %s', img_path.name, e)
         return None
 
 def main():
-    print("🔧 Optimizing Test Images")
-    print("=" * 60)
-    print("\n📋 Loading test prompts...")
+    logger.info('🔧 Optimizing Test Images')
+    logger.info('%s', '=' * 60)
+    logger.info('\n📋 Loading test prompts...')
     valid_tests = load_valid_tests()
-    print(f"   Found {len(valid_tests)} valid tests")
+    logger.info('   Found %d valid tests', len(valid_tests))
     profile_tests_dir = Path('profile_results')
     if not profile_tests_dir.exists():
-        print("❌ profile_results directory not found!")
+        logger.error('❌ profile_results directory not found!')
         return
     profile_dirs = [d for d in profile_tests_dir.iterdir() if d.is_dir()]
-    print(f"   Found {len(profile_dirs)} profile directories")
+    logger.info('   Found %d profile directories', len(profile_dirs))
     total_original_size = 0
     total_new_size = 0
     converted_count = 0
     orphaned_count = 0
     error_count = 0
     for profile_dir in sorted(profile_dirs):
-        print(f"\n📁 Processing {profile_dir.name}...")
+        logger.info('\n📁 Processing %s...', profile_dir.name)
         image_files = list(profile_dir.glob('*.png')) + list(profile_dir.glob('*.jpg')) + \
                      list(profile_dir.glob('*.jpeg')) + list(profile_dir.glob('*.webp'))
         if not image_files:
-            print("   No images found")
+            logger.info('   No images found')
             continue
         for img_path in image_files:
             filename_stem = img_path.stem
@@ -82,18 +85,18 @@ def main():
                 test_name = filename_stem
             test_name_with_spaces = test_name.replace('_', ' ')
             if test_name not in valid_tests and test_name_with_spaces not in valid_tests:
-                print(f"  🗑️  Orphaned: {img_path.name} (test no longer exists)")
+                logger.info('  🗑️  Orphaned: %s (test no longer exists)', img_path.name)
                 try:
                     img_path.unlink()
                     orphaned_count += 1
                 except Exception:
-                    print(f"  ❌ Could not delete {img_path}")
+                    logger.exception('  ❌ Could not delete %s', img_path)
                     error_count += 1
                 continue
             if img_path.suffix.lower() in ['.jpg', '.jpeg']:
-                print(f"  ✓  Already JPEG: {img_path.name}")
+                logger.info('  ✓  Already JPEG: %s', img_path.name)
                 continue
-            print(f"  🔄 Converting: {img_path.name}...", end='')
+            logger.info('  🔄 Converting: %s...', img_path.name)
             result = resize_and_convert_image(img_path)
             if result:
                 new_path, orig_size, new_size = result
@@ -105,23 +108,23 @@ def main():
                 except Exception:
                     pass
                 reduction = (1 - new_size / orig_size) * 100 if orig_size else 0
-                print(f" ✅ {orig_size // 1024}KB → {new_size // 1024}KB ({reduction:.1f}% smaller)")
+                logger.info(' ✅ %dKB → %dKB (%.1f%% smaller)', orig_size // 1024, new_size // 1024, reduction)
             else:
                 error_count += 1
-    print("\n" + "=" * 60)
-    print("📊 Summary:")
-    print(f"   Converted: {converted_count} images")
-    print(f"   Deleted orphans: {orphaned_count} images")
+    logger.info('\n%s', '=' * 60)
+    logger.info('📊 Summary:')
+    logger.info('   Converted: %d images', converted_count)
+    logger.info('   Deleted orphans: %d images', orphaned_count)
     if error_count > 0:
-        print(f"   Errors: {error_count} images")
+        logger.info('   Errors: %d images', error_count)
     if total_original_size > 0:
         savings = total_original_size - total_new_size
         savings_pct = (savings / total_original_size) * 100
-        print(f"\n💾 Space savings:")
-        print(f"   Before: {total_original_size / (1024*1024):.1f} MB")
-        print(f"   After:  {total_new_size / (1024*1024):.1f} MB")
-        print(f"   Saved:  {savings / (1024*1024):.1f} MB ({savings_pct:.1f}%)")
-    print("\n✅ Optimization complete!")
+        logger.info('\n💾 Space savings:')
+        logger.info('   Before: %.1f MB', total_original_size / (1024*1024))
+        logger.info('   After:  %.1f MB', total_new_size / (1024*1024))
+        logger.info('   Saved:  %.1f MB (%.1f%%)', savings / (1024*1024), savings_pct)
+    logger.info('\n✅ Optimization complete!')
 
 if __name__ == '__main__':
     main()

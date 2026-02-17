@@ -6,6 +6,9 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 from storage import init_storage, get_storage
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -50,7 +53,7 @@ def ensure_files():
     # Initialize test prompts file if missing
     if not storage.exists(TEST_PROMPTS_FILE):
         storage.write_json(TEST_PROMPTS_FILE, [])
-        print(f'Initialized empty test prompts file: {TEST_PROMPTS_FILE}')
+        logger.info('Initialized empty test prompts file: %s', TEST_PROMPTS_FILE)
 
 # Auto-initialize on import
 ensure_directories()

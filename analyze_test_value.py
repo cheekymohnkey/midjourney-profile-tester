@@ -5,6 +5,9 @@ from storage import get_storage
 import os
 import math
 from collections import defaultdict
+import logging
+
+logger = logging.getLogger(__name__)
 
 storage = get_storage()
 
@@ -33,9 +36,9 @@ for profile_id, data in analyses.items():
         elif affinity == 'resistant':
             prompt_stats[prompt_title]['resistant'] += 1
 
-print('=' * 80)
-print('TEST DIFFERENTIATION VALUE')
-print('=' * 80)
+logger.info('%s', '=' * 80)
+logger.info('TEST DIFFERENTIATION VALUE')
+logger.info('%s', '=' * 80)
 
 # Calculate differentiation score
 test_value = []
@@ -59,7 +62,7 @@ for prompt, stats in prompt_stats.items():
 
 test_value.sort(key=lambda x: x['differentiation'])
 
-print('\nLOWEST VALUE TESTS (No differentiation - everyone agrees):')
+logger.info('\nLOWEST VALUE TESTS (No differentiation - everyone agrees):')
 for i, item in enumerate(test_value[:15], 1):
     prompt = item['prompt']
     stats = item['stats']
@@ -71,15 +74,15 @@ for i, item in enumerate(test_value[:15], 1):
         consensus = f"Workable ({stats['workable']}/{stats['total']})"
     else:
         consensus = f"Resistant ({stats['resistant']}/{stats['total']})"
-    print(f"{i:2}. {prompt[:50]:50} | Diff: {diff:.2f} | {consensus}")
+    logger.info('%2d. %s | Diff: %.2f | %s', i, prompt[:50], diff, consensus)
 
-print('\n' + '=' * 80)
-print('RECOMMENDATION')
-print('=' * 80)
+logger.info('\n%s', '=' * 80)
+logger.info('RECOMMENDATION')
+logger.info('%s', '=' * 80)
 low_diff_tests = [t for t in test_value if t['differentiation'] < 0.2]
 high_diff_tests = [t for t in test_value if t['differentiation'] > 0.8]
-print(f"Tests with differentiation < 0.2: {len(low_diff_tests)}")
-print(f"Tests with differentiation > 0.8: {len(high_diff_tests)}")
+logger.info('Tests with differentiation < 0.2: %d', len(low_diff_tests))
+logger.info('Tests with differentiation > 0.8: %d', len(high_diff_tests))
 if low_diff_tests:
     total_tests = len(test_value)
-    print(f"Potential savings: Removing {len(low_diff_tests)} tests would reduce the suite from {total_tests} to {total_tests - len(low_diff_tests)} tests")
+    logger.info('Potential savings: Removing %d tests would reduce the suite from %d to %d tests', len(low_diff_tests), total_tests, total_tests - len(low_diff_tests))

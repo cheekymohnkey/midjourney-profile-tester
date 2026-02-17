@@ -5,6 +5,9 @@
 from test_prompts_manager import load_tests
 from dotenv import load_dotenv
 from storage import init_storage
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Load .env file
 load_dotenv()
@@ -17,8 +20,8 @@ data = load_tests()
 
 # Upload to S3
 storage.write_json('test_prompts.json', data)
-print(f'✓ Successfully uploaded test_prompts.json to S3 with {len(data)} tests')
+logger.info('✓ Successfully uploaded test_prompts.json to S3 with %d tests', len(data))
 
 # Verify by reading back
 stored_data = storage.read_json('test_prompts.json')
-print(f'✓ Verified: S3 file contains {len(stored_data)} tests')
+logger.info('✓ Verified: S3 file contains %d tests', len(stored_data))

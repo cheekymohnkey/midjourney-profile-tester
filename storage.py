@@ -11,6 +11,15 @@ import io
 from PIL import Image
 import boto3
 from botocore.exceptions import ClientError
+import logging
+
+import os
+
+logger = logging.getLogger(__name__)
+
+# Control S3 console logging via env var S3_CONSOLE_LOGS (default: false)
+# Set to 'true' or '1' to enable.
+_S3_CONSOLE_LOGS = os.getenv('S3_CONSOLE_LOGS', 'false').lower() in ('1', 'true', 'yes')
 
 class StorageBackend:
     """Base class for storage backends."""
@@ -93,8 +102,8 @@ class LocalStorage(StorageBackend):
         try:
             from services.console_logger import log_json_read
             log_json_read(str(file_path), len(content))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Failed to log json read for %s", file_path)
         return json.loads(content)
     
     def write_json(self, path: str, data: dict) -> None:
@@ -106,18 +115,18 @@ class LocalStorage(StorageBackend):
         try:
             from services.console_logger import log_file_write
             log_file_write(str(file_path), len(content))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Failed to log file write for %s", file_path)
         # If this looks like a profile analysis file, try to invalidate cache
         try:
             if 'profile_analyses' in str(path):
                 try:
                     from profile_analyses_manager import invalidate
                     invalidate(str(path))
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as e:
+                    logger.exception("Failed to invalidate profile analyses cache for %s", path)
+        except Exception as e:
+            logger.exception("Error while checking profile_analyses write path: %s", path)
 
     def get_metadata(self, path: str) -> dict:
         file_path = self._resolve_path(path)
@@ -213,11 +222,12 @@ class S3Storage(StorageBackend):
             key = self._get_key(path)
             response = self.s3.get_object(Bucket=self.bucket_name, Key=key)
             content = response['Body'].read().decode('utf-8')
-            try:
-                from services.console_logger import log_json_read
-                log_json_read(key, len(content))
-            except Exception:
-                pass
+            if _S3_CONSOLE_LOGS:
+                try:
+                    from services.console_logger import log_json_read
+                    log_json_read(key, len(content))
+                except Exception as e:
+                    logger.exception("Failed to log s3 json read for %s", key)
             return json.loads(content)
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
@@ -233,21 +243,22 @@ class S3Storage(StorageBackend):
             Body=content.encode('utf-8'),
             ContentType='application/json'
         )
-        try:
-            from services.console_logger import log_s3_write
-            log_s3_write(key, len(content.encode('utf-8')), response=resp)
-        except Exception:
-            pass
+        if _S3_CONSOLE_LOGS:
+            try:
+                from services.console_logger import log_s3_write
+                log_s3_write(key, len(content.encode('utf-8')), response=resp)
+            except Exception as e:
+                logger.exception("Failed to log s3 write for %s", key)
         # Invalidate profile analyses cache if writing an analysis
         try:
             if key.startswith('profile_analyses/') or '/profile_analyses/' in key:
                 try:
                     from profile_analyses_manager import invalidate
                     invalidate(key)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as e:
+                    logger.exception("Failed to invalidate profile analyses cache for s3 key %s", key)
+        except Exception as e:
+            logger.exception("Error while attempting to invalidate profile analyses cache for key %s", key)
 
     def get_metadata(self, path: str) -> dict:
         key = self._get_key(path)
@@ -412,11 +423,12 @@ def init_storage(
             aws_secret_access_key=aws_secret_access_key,
             region_name=region_name
         )
-        print(f"✓ Using S3 storage: s3://{bucket_name}/{s3_prefix}")
+        if _S3_CONSOLE_LOGS:
+            logger.info("✓ Using S3 storage: s3://%s/%s", bucket_name, s3_prefix)
     else:
         local_base_path = local_base_path or Path.cwd()
         _storage = LocalStorage(base_path=local_base_path)
-        print(f"✓ Using local storage: {local_base_path}")
+        logger.info("✓ Using local storage: %s", local_base_path)
     
     return _storage
 

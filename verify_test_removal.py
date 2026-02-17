@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 from test_prompts_manager import load_tests
+import logging
+
+logger = logging.getLogger(__name__)
 
 tests = load_tests()
-print(f'✅ Test suite updated')
-print(f'New test count: {len(tests)} (was 40)')
+logger.info('✅ Test suite updated')
+logger.info('New test count: %d (was 40)', len(tests))
 
-print('\nVerifying removed tests are gone:')
+logger.info('\nVerifying removed tests are gone:')
 removed = [
     'Bold Makeup Portrait',
     'Macro Water Droplets',
@@ -18,11 +21,11 @@ titles = [t['title'] for t in tests]
 
 for r in removed:
     status = '❌ STILL PRESENT' if r in titles else '✅ Removed'
-    print(f'  {r}: {status}')
+    logger.info('  %s: %s', r, status)
 
-print('\nVerifying Wildlife Test is kept:')
+logger.info('\nVerifying Wildlife Test is kept:')
 wt_status = '✅ Kept' if 'Wildlife Test' in titles else '❌ REMOVED'
-print(f'  Wildlife Test: {wt_status}')
+logger.info('  Wildlife Test: %s', wt_status)
 
-print('\n💰 Savings: {len(removed)} tests × 9 profiles = {len(removed) * 9} fewer ratings needed for new profiles')
-print("   That's 18% reduction in time and API costs!")
+logger.info('\n💰 Savings: %d tests × 9 profiles = %d fewer ratings needed for new profiles', len(removed), len(removed) * 9)
+logger.info("   That's 18%% reduction in time and API costs!")

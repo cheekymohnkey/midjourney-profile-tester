@@ -3,6 +3,9 @@
 
 from storage import get_storage
 from test_prompts_manager import load_tests
+import logging
+
+logger = logging.getLogger(__name__)
 
 storage = get_storage()
 
@@ -16,25 +19,25 @@ tests = load_tests()
 rating_count = len(baseline.get('ratings', {}))
 test_count = len(tests)
 
-print("=" * 60)
-print("RATING COUNT DIAGNOSIS")
-print("=" * 60)
-print(f"\nTotal tests in test_prompts.json: {test_count}")
-print(f"Total ratings in baseline_analysis.json: {rating_count}")
-print(f"Remaining: {test_count - rating_count}")
+logger.info("%s", "=" * 60)
+logger.info("RATING COUNT DIAGNOSIS")
+logger.info("%s", "=" * 60)
+logger.info("\nTotal tests in test_prompts.json: %d", test_count)
+logger.info("Total ratings in baseline_analysis.json: %d", rating_count)
+logger.info("Remaining: %d", test_count - rating_count)
 
-print("\n" + "=" * 60)
-print("RATED TESTS (from baseline_analysis.json):")
-print("=" * 60)
+logger.info("\n%s", "=" * 60)
+logger.info("RATED TESTS (from baseline_analysis.json):")
+logger.info("%s", "=" * 60)
 for i, test_name in enumerate(sorted(baseline.get('ratings', {}).keys()), 1):
-    print(f"  {i:2d}. {test_name}")
+    logger.info("  %2d. %s", i, test_name)
 
-print("\n" + "=" * 60)
-print("ALL TEST TITLES (from test_prompts.json):")
-print("=" * 60)
+logger.info("\n%s", "=" * 60)
+logger.info("ALL TEST TITLES (from test_prompts.json):")
+logger.info("%s", "=" * 60)
 test_titles = [test['title'] for test in tests]
 for i, title in enumerate(sorted(test_titles), 1):
-    print(f"  {i:2d}. {title}")
+    logger.info("  %2d. %s", i, title)
 
 # Find unrated tests
 rated_set = set(baseline.get('ratings', {}).keys())
@@ -44,20 +47,20 @@ unrated = test_set - rated_set
 rated_not_in_tests = rated_set - test_set
 
 if unrated:
-    print("\n" + "=" * 60)
-    print(f"UNRATED TESTS ({len(unrated)}):")
-    print("=" * 60)
+    logger.info("\n%s", "=" * 60)
+    logger.info("UNRATED TESTS (%d):", len(unrated))
+    logger.info("%s", "=" * 60)
     for name in sorted(unrated):
-        print(f"  - {name}")
+        logger.info("  - %s", name)
 
 if rated_not_in_tests:
-    print("\n" + "=" * 60)
-    print(f"RATINGS FOR TESTS NOT IN test_prompts.json ({len(rated_not_in_tests)}):")
-    print("=" * 60)
+    logger.info("\n%s", "=" * 60)
+    logger.info("RATINGS FOR TESTS NOT IN test_prompts.json (%d):", len(rated_not_in_tests))
+    logger.info("%s", "=" * 60)
     for name in sorted(rated_not_in_tests):
-        print(f"  - {name}")
+        logger.info("  - %s", name)
 
 if not unrated and not rated_not_in_tests:
-    print("\n" + "=" * 60)
-    print("ALL TESTS RATED - NO DISCREPANCIES FOUND")
-    print("=" * 60)
+    logger.info("\n%s", "=" * 60)
+    logger.info("ALL TESTS RATED - NO DISCREPANCIES FOUND")
+    logger.info("%s", "=" * 60)

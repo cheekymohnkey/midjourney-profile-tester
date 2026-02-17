@@ -5,6 +5,9 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import test_prompts_manager as tpm
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def build_safe(title):
@@ -13,7 +16,7 @@ def build_safe(title):
 
 tests = tpm.load_tests(status_filter=None)
 if not tests:
-    print('No tests loaded')
+    logger.info('No tests loaded')
     sys.exit(0)
 
 safe_to_guid = {}
@@ -26,17 +29,17 @@ for t in tests:
 
 backup_dir = Path('profile_analyses_backup')
 if not backup_dir.exists():
-    print('No profile_analyses_backup directory')
+    logger.info('No profile_analyses_backup directory')
     sys.exit(0)
 
 files = sorted([p for p in backup_dir.iterdir() if p.name.endswith('_analysis.json')])
-print(f'Found {len(files)} analysis files in profile_analyses_backup')
+logger.info('Found %d analysis files in profile_analyses_backup', len(files))
 count_changes=0
 for f in files:
     try:
         data = json.loads(f.read_text())
     except Exception as e:
-        print(f'Failed to read {f}: {e}')
+        logger.exception('Failed to read %s', f)
         continue
     ratings = data.get('ratings',{})
     changes=[]
@@ -46,8 +49,7 @@ for f in files:
             changes.append((key,guid))
     if changes:
         count_changes += 1
-        print(f"\n{f.name}: {len(changes)} keys to change")
+        logger.info('\n%s: %d keys to change', f.name, len(changes))
         for k,g in changes:
-            print(f"  '{k}' -> '{g}'")
-
-print(f"\nFiles with changes: {count_changes}")
+            logger.info("  '%s' -> '%s'", k, g)
+logger.info('\nFiles with changes: %d', count_changes)

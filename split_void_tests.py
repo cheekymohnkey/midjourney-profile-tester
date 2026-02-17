@@ -3,6 +3,9 @@
 `test_prompts_manager` so cache and storage backends are respected.
 """
 from test_prompts_manager import load_tests, save_tests
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # Read test prompts via manager (uses cache/storage)
@@ -39,8 +42,8 @@ void_art = {
 tests.extend([void_photo, void_art])
 save_tests(tests)
 
-print('✓ Split VOID test into two tests:')
-print(f'  1. VOID_PHOTO: {void_photo["params"]}')
-print(f'  2. VOID_ART: {void_art["params"]}')
-print(f'✓ Total tests: {len(tests)}')
-print(f'✓ Saved to test_prompts.json')
+logger.info('✓ Split VOID test into two tests:')
+logger.info('  1. VOID_PHOTO: %s', void_photo['params'])
+logger.info('  2. VOID_ART: %s', void_art['params'])
+logger.info('✓ Total tests: %d', len(tests))
+logger.info('✓ Saved to test_prompts.json')

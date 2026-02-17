@@ -26,9 +26,10 @@ def test_compute_score_with_failures_and_prefer():
     }
 
     out = compute_score_and_metrics(checks, {})
-    # Expected computation: 10 - 2 (must fail) - 1.5 (avoid present) + 0.5 (prefer=2) = 7.0
-    assert math.isclose(out['score'], 7.0, rel_tol=1e-6)
-    assert out['affinity'] == 'workable'
+    # Weighted computation: must_pass_rate=0, avoid_clean_rate=0, prefer_rate=1.0
+    # composite = 0.6*0 + 0.25*0 + 0.15*1 = 0.15 -> score = 1.5
+    assert math.isclose(out['score'], 1.5, rel_tol=1e-6)
+    assert out['affinity'] == 'resistant'
     # Confidence should be boosted because the MUST item has clear evidence
     assert math.isclose(out['confidence'], 0.9, rel_tol=1e-6)
 

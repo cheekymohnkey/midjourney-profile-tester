@@ -198,6 +198,11 @@ midjourney-profile-tester/
     ├── analyze_results.py
     ├── analyze_prompt_diversity.py
     └── diagnose_ratings.py
+    └── verify_logging.py           # Verify centralized logging config
+
+## Logging
+
+See [LOGGING.md](LOGGING.md) for the project's logging policy and guidance.
 ```
 
 ## Data Storage

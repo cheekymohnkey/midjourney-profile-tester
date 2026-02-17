@@ -5,6 +5,59 @@ from pathlib import Path
 import streamlit as st
 import test_prompts_manager as tpm
 from storage import get_storage
+from services.test_runner import run_test_for_profile
+from services.analysis import score_v1_from_checks
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _build_summary_from_rating(rating):
+    """Return the best available short summary for a rating.
+
+    Preference order: `notes` -> `commentary` -> auto-build from checks/metrics.
+    """
+    if not rating:
+        return "No commentary or analysis details available."
+    notes = rating.get('notes')
+    if notes:
+        return notes
+    commentary = rating.get('commentary')
+    if commentary:
+        return commentary
+
+    checks = rating.get('checks', {}) or {}
+    must = checks.get('must', []) or []
+    avoid = checks.get('avoid', []) or []
+    prefer = checks.get('prefer', []) or []
+
+    parts = []
+    if must:
+        must_pass = sum(1 for c in must if c.get('pass'))
+        parts.append(f"MUST passed {must_pass}/{len(must)}")
+    if avoid:
+        avoid_present = sum(1 for c in avoid if c.get('present'))
+        parts.append(f"AVOID present {avoid_present}/{len(avoid)}")
+    if prefer:
+        pref_vals = [c.get('rating', 0) for c in prefer]
+        if pref_vals:
+            parts.append(f"PREFER avg {sum(pref_vals)/len(pref_vals):.2f}/2")
+
+    failure_modes = rating.get('failure_modes') or []
+    if failure_modes:
+        parts.append("Failures: " + ", ".join(failure_modes[:3]))
+
+    metrics = rating.get('metrics_v1') or rating.get('metrics') or {}
+    if metrics:
+        try:
+            mstr = f"metrics must={metrics.get('must_pass_rate', '?')}, avoid={metrics.get('avoid_clean_rate', '?')}, prefer={metrics.get('prefer_rate', '?')}"
+            parts.append(mstr)
+        except Exception:
+            pass
+
+    if parts:
+        return "; ".join(parts)
+    return "No commentary or analysis details available."
 
 
 def render_tests_page(
@@ -25,6 +78,8 @@ def render_tests_page(
     that remain implemented in `midjourney_profile_tester.py` to avoid
     circular imports.
     """
+    
+
     debug_container = st.empty()
     start_time = time.time()
     debug_log = []
@@ -86,7 +141,7 @@ def render_tests_page(
 
             with st.expander(f"{test.get('section', 'N/A')} | {test.get('title', 'Untitled')} ({test.get('version', 'v1')})"):
                 st.markdown(f"**ID:** `{test.get('id', 'N/A')}`")
-                st.markdown(f"**GUID:** `{test.get('guid', 'N/A')}`")
+                st.markdown(f"**GUID:** `{test.get('id') or test.get('guid', 'N/A')}`")
                 st.markdown(f"**Status:** {test.get('status', 'current')}")
                 st.markdown(f"**Prompt:** {test.get('prompt', 'N/A')}")
                 st.markdown(f"**Parameters:** `{test.get('params', 'N/A')}`")
@@ -143,7 +198,7 @@ def render_tests_page(
                     expanded = st.checkbox("Show Profile Analyses", key=expander_key)
                     if expanded:
                         test_title = test.get('title', '')
-                        test_key = test.get('guid') or test_title
+                        test_key = test.get('id') or test.get('guid') or test_title
                         all_analyses = get_all_profile_analyses()
                         profile_ratings = []
                         for profile_id, data in all_analyses.items():
@@ -158,7 +213,12 @@ def render_tests_page(
                                         'affinity': rating_data.get('affinity', 'unknown'),
                                         'score': rating_data.get('score', 0),
                                         'confidence': rating_data.get('confidence', 0),
-                                        'commentary': rating_data.get('commentary', 'No commentary')
+                                        'commentary': rating_data.get('commentary'),
+                                        'notes': rating_data.get('notes'),
+                                        'color_palette': rating_data.get('color_palette'),
+                                        'checks': rating_data.get('checks'),
+                                        'metrics_v1': rating_data.get('metrics_v1') or rating_data.get('metrics'),
+                                        'failure_modes': rating_data.get('failure_modes') or []
                                     })
                             except Exception:
                                 pass
@@ -179,10 +239,114 @@ def render_tests_page(
                                     confidence_display = f"{float(confidence):.0%}"
                                 except (ValueError, TypeError):
                                     confidence_display = str(confidence)
-                                profile_text = f"{affinity_emoji} {rating['profile_id']} - \"{rating['label']}\" | Score: {rating['score']}/10 | Affinity: {rating['affinity']} | Confidence: {confidence_display}\n\n{rating['commentary']}\n"
+
+                                # Build a readable summary (prefer notes -> commentary -> auto-build)
+                                summary = _build_summary_from_rating({
+                                    'notes': rating.get('notes'),
+                                    'commentary': rating.get('commentary'),
+                                    'checks': rating.get('checks'),
+                                    'metrics_v1': rating.get('metrics_v1'),
+                                    'failure_modes': rating.get('failure_modes')
+                                })
+
+                                # Color palette and metrics (textual) for quick scanning
+                                palette = rating.get('color_palette')
+                                palette_text = ''
+                                if palette:
+                                    if isinstance(palette, dict):
+                                        dom = palette.get('dominant_hues') or palette.get('dominant') or []
+                                        acc = palette.get('accent_hues') or palette.get('accent') or []
+                                        sat = palette.get('saturation_level')
+                                        temp = palette.get('temperature_bias')
+                                        parts = []
+                                        if dom:
+                                            parts.append(f"dominant={dom}")
+                                        if acc:
+                                            parts.append(f"accent={acc}")
+                                        if sat:
+                                            parts.append(f"saturation={sat}")
+                                        if temp:
+                                            parts.append(f"temperature={temp}")
+                                        palette_text = ", ".join(parts)
+                                    else:
+                                        # fallback: stringify
+                                        palette_text = str(palette)
+
+                                metrics = rating.get('metrics_v1') or {}
+                                weights = ''
+                                if metrics and isinstance(metrics, dict):
+                                    w = metrics.get('weights')
+                                    if w:
+                                        weights = f"weights={w}"
+
+                                profile_text = (
+                                    f"{affinity_emoji} {rating['profile_id']} - \"{rating['label']}\" | Score: {rating['score']}/10 | Affinity: {rating['affinity']} | Confidence: {confidence_display}\n"
+                                    + (f"Color Palette: {palette_text}\n" if palette_text else "")
+                                    + (f"{weights}\n" if weights else "")
+                                    + f"\n{summary}\n"
+                                )
                                 all_profiles_text.append(profile_text)
                             combined_text = "\n" + "="*80 + "\n\n".join(all_profiles_text)
                             st.text_area("All Profile Analyses", combined_text, height=400, key=f"analysis_{test.get('id', '')}")
+                            # Rescore button: call scorer for every profile rating and log inputs/outputs to server console
+                            if st.button("🔢 Re-Score All (console)", key=f"rescore_all_btn_{test.get('id','')}"):
+                                res_count = 0
+                                for rating in profile_ratings:
+                                    prof = rating.get('profile_id')
+                                    try:
+                                        analysis_file = Path("profile_analyses") / f"{prof}_analysis.json"
+                                        analysis_data = get_storage().read_json(str(analysis_file)) or {}
+                                        rating_key = test.get('id') or test.get('guid') or test.get('title')
+                                        ratings_dict = analysis_data.get('ratings', {})
+                                        rating_data = ratings_dict.get(rating_key) or ratings_dict.get(test.get('title'))
+                                        if not rating_data:
+                                            continue
+                                        checks = rating_data.get('checks', {}) or {}
+                                        metrics = rating_data.get('metrics_v1') or rating_data.get('metrics') or {}
+                                        # Prefer explicit weights in stored metrics; otherwise use the
+                                        # test's rubric weights. Fetch a fresh test entry in case
+                                        # the in-memory `test` object is stale.
+                                        try:
+                                            freshest_test = tpm.get_test_by_title(test.get('title')) or test
+                                        except Exception:
+                                            freshest_test = test
+                                        test_weights = (freshest_test.get('rubric', {}) or {}).get('weights', {})
+                                        rubric_weights = metrics.get('weights') or test_weights or {}
+                                        # Fetch authoritative test weights (fresh) and log everything before scoring.
+                                        try:
+                                            authoritative_test = tpm.get_test_by_title(test.get('title')) or freshest_test
+                                        except Exception:
+                                            authoritative_test = freshest_test
+                                        authoritative_weights = (authoritative_test.get('rubric', {}) or {}).get('weights', {})
+                                        # Console-output for trace (promote to INFO so server logs show it)
+                                        _msg = '[UI RESCORE PREP] rating_key=%s authoritative_weights=%s resolved_weights=%s client_metrics_weights=%s'
+                                        try:
+                                            logger.info(_msg, rating_key, authoritative_weights, rubric_weights, (metrics.get('weights') or {}))
+                                        except Exception:
+                                            try:
+                                                logger.debug(_msg, rating_key, authoritative_weights, rubric_weights, (metrics.get('weights') or {}))
+                                            except Exception:
+                                                pass
+                                        # If authoritative weights exist, ensure they match resolved; otherwise abort this rating
+                                        if authoritative_weights and (rubric_weights != authoritative_weights):
+                                            try:
+                                                logger.info('[UI RESCORE ABORT] rating_key=%s resolved_weights do not match authoritative_weights; skipping scoring. resolved=%s authoritative=%s', rating_key, rubric_weights, authoritative_weights)
+                                            except Exception:
+                                                try:
+                                                    logger.debug('[UI RESCORE ABORT] rating_key=%s resolved_weights do not match authoritative_weights; skipping scoring', rating_key)
+                                                except Exception:
+                                                    pass
+                                            continue
+                                        # Call scoring function (it logs inputs/outputs)
+                                        try:
+                                            score_v1_from_checks(checks, rubric_weights)
+                                            logger.info('[UI RESCORE] Scored rating_key=%s', rating_key)
+                                        except Exception as e:
+                                            logger.exception('[UI RESCORE] Failed to score rating_key=%s: %s', rating_key, e)
+                                        res_count += 1
+                                    except Exception as e:
+                                        st.error(f"Failed to rescore {prof}: {e}")
+                                st.success(f"Rescored {res_count} profile(s) — check server console for details")
                             if st.button("🤖 Analyze Missing Across Profiles", key=f"analyze_missing_btn_{test.get('id','')}"):
                                 all_profile_ids_local = get_existing_profile_ids()
                                 profiles_to_check = [''] + all_profile_ids_local
@@ -195,9 +359,10 @@ def render_tests_page(
                                 for prof in profiles_to_check:
                                     try:
                                         prof_id_check = prof if prof else 'baseline'
+                                        # Check existing rating to avoid overwriting in the "Analyze Missing" flow
                                         analysis_file = Path("profile_analyses") / f"{prof_id_check}_analysis.json"
                                         analysis_data = __import__("storage").get_storage().read_json(str(analysis_file)) or {"ratings": {}}
-                                        rating_key = test.get('guid') or test.get('title')
+                                        rating_key = test.get('id') or test.get('guid') or test.get('title')
                                         existing_ratings_dict = analysis_data.get('ratings', {})
                                         if rating_key in existing_ratings_dict or test.get('title') in existing_ratings_dict:
                                             skipped += 1
@@ -205,66 +370,17 @@ def render_tests_page(
                                             progress.progress(int(done/total*100))
                                             continue
 
-                                        # Find uploaded image(s)
-                                        if test.get('title') in ["Null Prompt (Photo)", "Null Prompt (Art)"]:
-                                            void_images = []
-                                            for img_num in range(1, 9):
-                                                fp = find_image_file(Path(f"profile_results/{prof if prof else 'baseline'}"), prof if prof else 'baseline', test.get('title'), image_num=img_num)
-                                                if fp:
-                                                    void_images.append(fp)
-                                            if not void_images:
+                                        # Delegate to shared runner which handles image collection, calling the LLM, and saving
+                                        try:
+                                            res = run_test_for_profile(test, prof, find_image_file, save_analysis)
+                                            if res.get('status') == 'ok' and res.get('saved'):
+                                                analyzed += 1
+                                            elif res.get('status') == 'no_images':
                                                 skipped += 1
-                                                done += 1
-                                                progress.progress(int(done/total*100))
-                                                continue
-                                            single_test = [(test.get('title'), void_images, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
-                                        else:
-                                            fp = find_image_file(Path(f"profile_results/{prof if prof else 'baseline'}"), prof if prof else 'baseline', test.get('title'))
-                                            if not fp:
-                                                skipped += 1
-                                                done += 1
-                                                progress.progress(int(done/total*100))
-                                                continue
-                                            single_test = [(test.get('title'), fp, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
-
-                                        with st.spinner(f"Analyzing {prof_id_check}..."):
-                                            try:
-                                                result = batch_ai_rate_images(single_test, prof_id_check, existing_ratings=analysis_data.get('ratings', {}))
-                                            except Exception as e:
-                                                import traceback
-                                                tb = traceback.format_exc()
-                                                errors.append(f"{prof if prof else 'baseline'}: {e}\n{tb}")
-                                                result = None
-
-                                            if result and 'ratings' in result:
-                                                returned_rating = result['ratings'].get(test.get('title'))
-                                                if returned_rating:
-                                                    analysis_data.setdefault('ratings', {})
-                                                    write_key = test.get('guid') or test.get('title')
-                                                    analysis_data['ratings'][write_key] = returned_rating
-                                                    if write_key != test.get('title') and test.get('title') in analysis_data['ratings']:
-                                                        try:
-                                                            del analysis_data['ratings'][test.get('title')]
-                                                        except Exception:
-                                                            pass
-                                                    save_analysis(prof_id_check, analysis_data)
-                                                    analyzed += 1
-                                                else:
-                                                    try:
-                                                        keys = list(result.get('ratings', {}).keys())
-                                                    except Exception:
-                                                        keys = []
-                                                    errors.append(f"No rating returned for {prof_id_check} — response rating keys: {keys}")
-                                                    try:
-                                                        dump_dir = Path("profile_analyses/backups")
-                                                        dump_dir.mkdir(parents=True, exist_ok=True)
-                                                        dump_file = dump_dir / f"{prof_id_check}_batch_response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                                                        dump_file.write_text(json.dumps(result, indent=2))
-                                                        print(f"Saved batch response to {dump_file}")
-                                                    except Exception as e:
-                                                        print(f"Failed to save batch response: {e}")
                                             else:
-                                                errors.append(f"No rating returned for {prof_id_check}")
+                                                errors.append(f"{prof_id_check}: {res.get('error')}")
+                                        except Exception as e:
+                                            errors.append(f"{prof_id_check}: {e}")
 
                                     except Exception as e:
                                         errors.append(f"{prof if prof else 'baseline'}: {e}")
@@ -272,6 +388,34 @@ def render_tests_page(
                                     progress.progress(int(done/total*100))
 
                                 st.success(f"Analysis complete — {analyzed} analyzed, {skipped} skipped, {len(errors)} errors")
+                                if errors:
+                                    for err in errors:
+                                        st.error(err)
+                            # Force re-analyze button (overwrites existing ratings)
+                            if st.button("🔁 Re-Analyze All Profiles (force)", key=f"reanalyse_all_btn_{test.get('id','')}"):
+                                all_profile_ids_local = get_existing_profile_ids()
+                                profiles_to_check = [''] + all_profile_ids_local
+                                progress = st.progress(0)
+                                total = len(profiles_to_check)
+                                done = 0
+                                analyzed = 0
+                                skipped = 0
+                                errors = []
+                                for prof in profiles_to_check:
+                                    try:
+                                        res = run_test_for_profile(test, prof, find_image_file, save_analysis)
+                                        if res.get('status') == 'ok' and res.get('saved'):
+                                            analyzed += 1
+                                        elif res.get('status') == 'no_images':
+                                            skipped += 1
+                                        else:
+                                            errors.append(f"{prof if prof else 'baseline'}: {res.get('error')}")
+                                    except Exception as e:
+                                        errors.append(f"{prof if prof else 'baseline'}: {e}")
+                                    done += 1
+                                    progress.progress(int(done/total*100))
+
+                                st.success(f"Re-analysis complete — {analyzed} analyzed, {skipped} skipped, {len(errors)} errors")
                                 if errors:
                                     for err in errors:
                                         st.error(err)
@@ -322,9 +466,10 @@ def render_tests_page(
                                     for p_idx, prof in enumerate(profiles_to_check):
                                         try:
                                             prof_id_check = prof if prof else 'baseline'
+                                            # Skip profiles that already have a rating for this test
                                             analysis_file = Path("profile_analyses") / f"{prof_id_check}_analysis.json"
                                             analysis_data = __import__("storage").get_storage().read_json(str(analysis_file)) or {"ratings": {}}
-                                            rating_key = test.get('guid') or test_title
+                                            rating_key = test.get('id') or test.get('guid') or test_title
                                             existing_ratings_dict = analysis_data.get('ratings', {})
                                             if rating_key in existing_ratings_dict or test_title in existing_ratings_dict:
                                                 skipped += 1
@@ -332,63 +477,16 @@ def render_tests_page(
                                                 progress.progress(int(done/total*100))
                                                 continue
 
-                                            # Find image(s) for this profile
-                                            if test_title in ["Null Prompt (Photo)", "Null Prompt (Art)"]:
-                                                void_images = []
-                                                for img_num in range(1, 9):
-                                                    fp = find_image_file(Path(f"profile_results/{prof if prof else 'baseline'}"), prof if prof else 'baseline', test_title, image_num=img_num)
-                                                    if fp:
-                                                        void_images.append(fp)
-                                                if not void_images:
-                                                    skipped += 1
-                                                    done += 1
-                                                    progress.progress(int(done/total*100))
-                                                    continue
-                                                single_test = [(test_title, void_images, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
-                                            else:
-                                                fp = find_image_file(Path(f"profile_results/{prof if prof else 'baseline'}"), prof if prof else 'baseline', test_title)
-                                                if not fp:
-                                                    skipped += 1
-                                                    done += 1
-                                                    progress.progress(int(done/total*100))
-                                                    continue
-                                                single_test = [(test_title, fp, {'Section': '', 'Prompt': '', 'Parameter Values': ''})]
-
-                                            # Call batch analysis for this single test/profile
-                                            with st.spinner(f"Analyzing {prof_id_check}..."):
-                                                result = batch_ai_rate_images(single_test, prof_id_check, existing_ratings=analysis_data.get('ratings', {}))
-
-                                            if result and 'ratings' in result:
-                                                returned_rating = result['ratings'].get(test_title)
-                                                if returned_rating:
-                                                    analysis_data.setdefault('ratings', {})
-                                                    write_key = test.get('guid') or test_title
-                                                    analysis_data['ratings'][write_key] = returned_rating
-                                                    # remove legacy title key if GUID used
-                                                    if write_key != test_title and test_title in analysis_data['ratings']:
-                                                        try:
-                                                            del analysis_data['ratings'][test_title]
-                                                        except Exception:
-                                                            pass
-                                                    save_analysis(prof_id_check, analysis_data)
+                                            try:
+                                                res = run_test_for_profile(test, prof, find_image_file, save_analysis)
+                                                if res.get('status') == 'ok' and res.get('saved'):
                                                     analyzed += 1
+                                                elif res.get('status') == 'no_images':
+                                                    skipped += 1
                                                 else:
-                                                    try:
-                                                        keys = list(result.get('ratings', {}).keys())
-                                                    except Exception:
-                                                        keys = []
-                                                    errors.append(f"No rating returned for {prof_id_check} — response rating keys: {keys}")
-                                                    # Save full response for debugging
-                                                    try:
-                                                        dump_dir = Path("profile_analyses/backups")
-                                                        dump_dir.mkdir(parents=True, exist_ok=True)
-                                                        dump_file = dump_dir / f"{prof_id_check}_batch_response_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                                                        dump_file.write_text(json.dumps(result, indent=2))
-                                                        print(f"Saved batch response to {dump_file}")
-                                                    except Exception as e:
-                                                        print(f"Failed to save batch response: {e}")
-                                            else:
-                                                errors.append(f"No rating returned for {prof_id_check}")
+                                                    errors.append(f"{prof_id_check}: {res.get('error')}")
+                                            except Exception as e:
+                                                errors.append(f"{prof_id_check}: {e}")
 
                                         except Exception as e:
                                             errors.append(f"{prof if prof else 'baseline'}: {e}")
@@ -397,6 +495,34 @@ def render_tests_page(
 
                                     # Summary
                                     st.success(f"Analysis complete — {analyzed} analyzed, {skipped} skipped, {len(errors)} errors")
+                                    if errors:
+                                        for err in errors:
+                                            st.error(err)
+                                # Force re-analyze button (overwrites existing ratings)
+                                if st.button("🔁 Re-Analyze All Profiles (force)", key=f"reanalyse_all_{test.get('id','')}"):
+                                    all_profile_ids = get_existing_profile_ids()
+                                    profiles_to_check = [''] + all_profile_ids
+                                    progress = st.progress(0)
+                                    total = len(profiles_to_check)
+                                    done = 0
+                                    analyzed = 0
+                                    skipped = 0
+                                    errors = []
+                                    for p_idx, prof in enumerate(profiles_to_check):
+                                        try:
+                                            res = run_test_for_profile(test, prof, find_image_file, save_analysis)
+                                            if res.get('status') == 'ok' and res.get('saved'):
+                                                analyzed += 1
+                                            elif res.get('status') == 'no_images':
+                                                skipped += 1
+                                            else:
+                                                errors.append(f"{prof if prof else 'baseline'}: {res.get('error')}")
+                                        except Exception as e:
+                                            errors.append(f"{prof if prof else 'baseline'}: {e}")
+                                        done += 1
+                                        progress.progress(int(done/total*100))
+
+                                    st.success(f"Re-analysis complete — {analyzed} analyzed, {skipped} skipped, {len(errors)} errors")
                                     if errors:
                                         for err in errors:
                                             st.error(err)
@@ -599,7 +725,7 @@ def render_tests_page(
                 edit_prompt = st.text_area("Prompt", value=selected_test.get('prompt', ''), height=100)
                 edit_params = st.text_input("Parameters", value=selected_test.get('params', ''))
                 # Show GUID for this test (read-only)
-                st.markdown(f"**GUID:** `{selected_test.get('guid', '(none)')}`")
+                st.markdown(f"**GUID:** `{selected_test.get('id') or selected_test.get('guid', '(none)')}`")
                 # New metadata fields
                 edit_analysis_spec_version = st.text_input("Analysis Spec Version", value=selected_test.get('analysis_spec_version', ''))
                 edit_taxonomy_version = st.text_input("Taxonomy Version", value=selected_test.get('taxonomy_version', ''))
