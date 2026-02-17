@@ -575,10 +575,33 @@ def render_tests_page(
                     test_section = test.get('section', '')
                     if test_prompt:
                         st.markdown("**Global Parameters** (applied to all prompts)")
+                        # Ensure per-test global params widget stays in sync when
+                        # the global params are updated elsewhere in the app.
+                        widget_key = f"test_global_params_{test.get('id', '')}"
+                        current_token = st.session_state.get('global_params_token', None)
+                        last_seen = st.session_state.get(f"{widget_key}_token", None)
+                        if last_seen != current_token:
+                            # Initialize or refresh the per-test widget value. If
+                            # the global params include an explicit seed value
+                            # (e.g. `--seed 123`), replace it with a randomized
+                            # 32-bit unsigned int so prompts vary per use.
+                            def _randomize_seed(s: str) -> str:
+                                import random, re
+                                if not s:
+                                    return s
+                                def _repl(m):
+                                    prefix = m.group(1)
+                                    return f"{prefix}{random.randint(0, 2**32-1)}"
+                                return re.sub(r"(--seed(?:=|\s+))(\d+)", _repl, s, flags=re.IGNORECASE)
+
+                            init_val = st.session_state.get('global_params', '--ar 16:9 --quality 4 --seed 20161027')
+                            st.session_state[widget_key] = _randomize_seed(init_val)
+                            st.session_state[f"{widget_key}_token"] = current_token
+
                         test_global_params = st.text_input(
                             "Global parameters for this test",
-                            value=st.session_state.get('global_params', '--ar 16:9 --quality 4 --seed 20161027'),
-                            key=f"test_global_params_{test.get('id', '')}",
+                            value=st.session_state.get(widget_key, '--ar 16:9 --quality 4 --seed 20161027'),
+                            key=widget_key,
                             help="Add --ar, --quality, --seed, etc. These will be added to all prompts"
                         )
                         st.caption(f"📌 Test-specific parameters (stored with test): `{test_params if test_params else 'none'}`")

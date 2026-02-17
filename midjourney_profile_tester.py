@@ -22,6 +22,8 @@ from streamlit_sortables import sort_items
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import datetime
+import random
+import re
 
 # Module logger
 from services.logger_config import init_logging
@@ -1122,8 +1124,23 @@ if st.session_state.page == 'prompts':
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)  # Spacing to align button
         if st.button("Apply"):
-            st.session_state.global_params = global_params
-            save_global_params(global_params)
+            # Randomize any explicit seed values so each application yields
+            # a fresh 32-bit unsigned seed where the user provided one.
+            def _randomize_seed(s: str) -> str:
+                if not s:
+                    return s
+                def _repl(m):
+                    prefix = m.group(1)
+                    return f"{prefix}{random.randint(0, 2**32-1)}"
+                # Match --seed 123 or --seed=123 (case-insensitive)
+                return re.sub(r"(--seed(?:=|\s+))(\d+)", _repl, s, flags=re.IGNORECASE)
+
+            randomized = _randomize_seed(global_params)
+            st.session_state.global_params = randomized
+            save_global_params(randomized)
+            # Bump a sync token so other pages can detect the change and
+            # refresh dependent widgets.
+            st.session_state.global_params_token = st.session_state.get('global_params_token', 0) + 1
             st.rerun()
     
     st.markdown("---")
