@@ -4,7 +4,7 @@
 import re
 import os
 from pathlib import Path
-from test_prompts_manager import load_tests
+from services.test_data_service import get_test_data_service
 from storage import get_storage
 import logging
 
@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 storage = get_storage()
 
 # Load test prompts
-tests = load_tests()
+tds = get_test_data_service()
+tests = tds.list_tests()
 
 # Create dict of test titles
 test_titles = {test['title']: test for test in tests}

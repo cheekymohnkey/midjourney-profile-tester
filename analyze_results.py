@@ -4,7 +4,7 @@
 import os
 from collections import defaultdict
 from storage import get_storage
-from test_prompts_manager import load_tests
+from services.test_data_service import get_test_data_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -20,8 +20,9 @@ for filename in os.listdir('profile_analyses'):
 
     logger.info('📊 Loaded %d profile analyses\n', len(analyses))
 
-# Load test prompts for reference
-test_prompts = {t['title']: t for t in load_tests()}
+# Load test prompts for reference via TestDataService
+tds = get_test_data_service()
+test_prompts = {t['title']: t for t in tds.list_tests()}
 
 # Aggregate statistics
 total_ratings = sum(len(a.get('ratings', {})) for a in analyses.values())

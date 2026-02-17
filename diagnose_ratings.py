@@ -2,18 +2,24 @@
 """Diagnose rating count mismatch between UI and baseline_analysis.json"""
 
 from storage import get_storage
-from test_prompts_manager import load_tests
+from services.test_data_service import get_test_data_service
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 storage = get_storage()
+
+# Load test prompts via TestDataService
+tds = get_test_data_service()
+tests = tds.list_tests()
 
 # Load baseline analysis via storage backend
 baseline = storage.read_json('profile_analyses/baseline_analysis.json') or {}
 
 # Load test prompts
-tests = load_tests()
+# Load test prompts
+# tests = load_tests()  (replaced above)
 
 # Count ratings
 rating_count = len(baseline.get('ratings', {}))

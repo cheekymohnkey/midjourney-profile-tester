@@ -11,7 +11,7 @@ import re
 import math
 
 from storage import get_storage
-from test_prompts_manager import load_tests
+from services.test_data_service import get_test_data_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,8 @@ def tokenize(text: str):
 def main():
     storage = get_storage()
 
-    tests = load_tests()
+    tds = get_test_data_service()
+    tests = tds.list_tests()
     if not tests:
         logger.info('No tests found in test_prompts.json')
         return

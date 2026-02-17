@@ -22,7 +22,8 @@ def batch_ai_rate_images(uploaded_tests: List[Tuple[str, object, dict]], profile
         from services.test_payload import prepare_test_message
         from services.ai_client import chat_completion_parse_json
         from services.gpt_config import DEFAULT_MODEL, DEFAULT_MAX_COMPLETION_TOKENS
-        import test_prompts_manager as tpm
+        from services.test_data_service import get_test_data_service
+        tpm = get_test_data_service()
     except Exception as e:
         logger.exception("Failed to import batch helpers: %s", e)
         raise
@@ -44,7 +45,7 @@ def batch_ai_rate_images(uploaded_tests: List[Tuple[str, object, dict]], profile
     skipped = []
     for name, path, row in tests_to_send:
         try:
-            t_obj = tpm.get_test_by_title(name)
+            t_obj = tpm.get_by_title(name)
         except Exception:
             t_obj = None
         rubric = None
@@ -117,26 +118,8 @@ def batch_ai_rate_images(uploaded_tests: List[Tuple[str, object, dict]], profile
         return {"error": "no_json_response", "dump_file": str(dump_file) if dump_file is not None else None, "response_text_snippet": (response_text or '')[:2000]}
 
     try:
-        # Ensure parsed ratings carry test rubric weights when missing. The AI parser
-        # may omit `metrics_v1.weights`; inject from `sendable` test objects before
-        # applying deterministic scoring.
-        for name, filepath_or_list, row, test_obj in sendable:
-            try:
-                key = (test_obj.get('guid') or test_obj.get('id')) if isinstance(test_obj, dict) else name.replace(' ', '_').replace('/', '_')
-                ratings = parsed.get('ratings', {}) if isinstance(parsed, dict) else {}
-                rating = ratings.get(key)
-                if rating:
-                    metrics = rating.get('metrics_v1') or rating.get('metrics') or {}
-                    if not metrics.get('weights'):
-                        w = (test_obj.get('rubric', {}) or {}).get('weights', {})
-                        metrics['weights'] = w
-                        rating['metrics_v1'] = metrics
-                        ratings[key] = rating
-                        parsed['ratings'] = ratings
-            except Exception:
-                # Non-fatal: continue injecting other tests
-                pass
-
+        # Delegate scoring to the scoring service which will lookup authoritative
+        # rubrics itself; do not inject test rubrics/weights here.
         from services.score_service import apply_scores_to_result
         parsed = apply_scores_to_result(parsed)
     except Exception:

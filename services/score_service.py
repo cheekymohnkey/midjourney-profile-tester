@@ -1,5 +1,6 @@
 from typing import Dict, Any
 from .analysis import score_v1_from_checks
+from .test_data_service import get_test_data_service
 import logging
 import sys
 import traceback
@@ -117,11 +118,15 @@ def compute_score_and_metrics(checks: Dict[str, Any], rubric_weights: Dict[str, 
     return result
 
 
-def apply_scores_to_result(parsed_result: dict, default_weights: dict | None = None) -> dict:
-    """Ensure each rating in `parsed_result['ratings']` has computed score/metrics.
+def apply_scores_to_result(parsed_result: dict) -> dict:
+    """Compute scores for each rating using authoritative rubric lookup.
 
-    This mutates and returns the parsed_result for convenience. If a rating
-    already contains a `score` field, it is left unchanged.
+    The scoring service accepts only the checks (pass/fail evidence) and a
+    test identifier (guid/id/title). It looks up the authoritative rubric and
+    weights from `test_prompts.json` via `test_prompts_manager` using that
+    identifier. If the lookup fails the failure is logged at CRITICAL level.
+
+    This function will not trust or use any client-supplied weights.
     """
     if not isinstance(parsed_result, dict):
         return parsed_result
@@ -130,86 +135,29 @@ def apply_scores_to_result(parsed_result: dict, default_weights: dict | None = N
     for key, val in list(ratings.items()):
         try:
             checks = val.get('checks') or {'must': [], 'avoid': [], 'prefer': []}
-            # Enforce authoritative weights from `test_prompts.json` via test_prompts_manager.
-            # Do NOT trust client-supplied weights. Look up the test by key (title/id/guid)
-            # and use its `rubric.weights`. If unavailable, fall back to provided default_weights.
-            weights = {}
-            test_obj = None
-            try:
-                import test_prompts_manager as tpm
-                try:
-                    test_obj = tpm.get_test_by_title(key)
-                except Exception:
-                    test_obj = None
-                if not test_obj:
-                    try:
-                        tests = tpm.load_tests()
-                        for t in tests:
-                            if (t.get('id') == key) or (t.get('guid') == key):
-                                test_obj = t
-                                break
-                    except Exception:
-                        test_obj = None
-                if test_obj:
-                    weights = (test_obj.get('rubric', {}) or {}).get('weights') or {}
-            except Exception:
-                weights = {}
 
-            # Log what authoritative test/rubric (if any) was found for this rating key
-            _safe_log(
-                logger.info,
-                "Lookup for rating '%s' returned test id=%s title=%s rubric.weights=%s",
-                key,
-                (test_obj.get('id') if test_obj else None),
-                (test_obj.get('title') if test_obj else None),
-                weights,
-            )
-            _safe_log(logger.debug, "Full retrieved test object for '%s': %s", key, test_obj)
-            # If authoritative weights not found, use caller-provided default_weights
-            initial_client_weights = (val.get('metrics_v1') or {}).get('weights') or {}
-            if not weights:
-                weights = default_weights or {}
-            # Determine source of the weights for logging/audit
-            if test_obj and weights:
-                weight_source = 'authoritative'
-            elif (not test_obj) and default_weights:
-                weight_source = 'default'
-            elif initial_client_weights:
-                weight_source = 'client_supplied'
-            else:
-                weight_source = 'none'
-            # Overwrite any client-supplied weights in the rating so saved analysis is authoritative
+            # Determine which identifier the client passed. Prefer explicit
+            # `test_id`/`guid` fields, otherwise fall back to the rating key.
+            guid = val.get('test_id') or val.get('guid') or key
+
+            # Lookup authoritative test/rubric via centralized TestDataService
+            test_obj = None
+            weights: Dict[str, Any] = {}
             try:
-                mv = val.get('metrics_v1') or {}
-                mv['weights'] = weights
-                val['metrics_v1'] = mv
+                tds = get_test_data_service()
+                test_obj = tds.get_by_guid(guid) or tds.get_by_id(guid) or tds.get_by_title(guid)
             except Exception:
-                pass
-            # Print/log enforcement/source so it's visible in server logs
-            _safe_log(logger.info, "Enforced test-level weights for rating '%s' (source=%s): %s", key, weight_source, weights)
+                test_obj = None
+
+            if not test_obj:
+                _safe_log(logger.critical, "Scoring lookup failed for test id/guid='%s' rating_key='%s'", guid, key)
+                weights = {}
+            else:
+                weights = (test_obj.get('rubric') or {}).get('weights') or {}
+
             # Only compute if score missing
             if 'score' not in val or val.get('score') is None:
-                # Dump everything the scoring algorithm needs before scoring
-                must_list = (test_obj.get('rubric') or {}).get('must') if test_obj else None
-                avoid_list = (test_obj.get('rubric') or {}).get('avoid') if test_obj else None
-                prefer_list = (test_obj.get('rubric') or {}).get('prefer') if test_obj else None
-                must_total = len(checks.get('must') or [])
-                avoid_total = len(checks.get('avoid') or [])
-                prefer_total = len(checks.get('prefer') or [])
-                _safe_log(logger.info, "[SCORER PREP] rating='%s'", key)
-                _safe_log(logger.info, "  test_id=%s title=%s", (test_obj.get('id') if test_obj else None), (test_obj.get('title') if test_obj else None))
-                _safe_log(logger.info, "  rubric.must=%s", must_list)
-                _safe_log(logger.info, "  rubric.avoid=%s", avoid_list)
-                _safe_log(logger.info, "  rubric.prefer=%s", prefer_list)
-                _safe_log(logger.info, "  initial_client_weights=%s", initial_client_weights)
-                _safe_log(logger.info, "  default_weights=%s", default_weights)
-                _safe_log(logger.info, "  resolved_weights=%s", weights)
-                _safe_log(logger.info, "  weight_source=%s", weight_source)
-                _safe_log(logger.debug, "  checks=%s", checks)
-                _safe_log(logger.info, "  counts: must_total=%d avoid_total=%d prefer_total=%d", must_total, avoid_total, prefer_total)
-                _safe_log(logger.info, "  treat_empty_as_workable=%s", False)
                 out = compute_score_and_metrics(checks, weights)
-                # merge computed fields into rating
                 val['score'] = out.get('score')
                 val['affinity'] = out.get('affinity')
                 val['confidence'] = out.get('confidence')
